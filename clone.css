@@ -1,0 +1,21 @@
+/* Supplementary styles for the clone's connective sections (not part of original CSSOM dump) */
+.clone-main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px; font-family: 'Inter', sans-serif; color: #1a1a1a; }
+.clone-hero { background: #f4f6f5; border-radius: 12px; padding: 48px 32px; margin-bottom: 32px; }
+.clone-hero-inner { max-width: 640px; }
+.clone-hero-title { font-size: 32px; font-weight: 700; margin: 0 0 12px; }
+.clone-hero-sub { font-size: 16px; color: #5c6570; margin: 0; }
+.clone-section { margin: 40px 0; }
+.clone-section-title { font-size: 22px; font-weight: 700; margin: 0 0 16px; }
+.clone-spotify-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; background: #1a1a1a; color: #fff; border-radius: 12px; padding: 24px 28px; }
+.clone-spotify-text strong { font-size: 17px; display: block; margin-bottom: 6px; }
+.clone-spotify-text p { margin: 0; color: #c7c9cc; font-size: 14px; }
+.clone-spotify-btn { background: #1DB954 !important; color: #fff !important; border: none; border-radius: 24px; padding: 12px 28px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.clone-city-list { display: flex; flex-wrap: wrap; gap: 12px; list-style: none; margin: 0; padding: 0; }
+.clone-city-list li a { display: inline-block; padding: 10px 20px; border: 1px solid #d8dade; border-radius: 24px; text-decoration: none; color: #1a1a1a; font-weight: 500; }
+.clone-city-list li a:hover { background: #f4f6f5; }
+.clone-event-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; list-style: none; margin: 0; padding: 0; }
+.clone-event-grid > a { display: block; }
+.clone-artist-hero { padding: 32px 0; border-bottom: 1px solid #e6e8eb; margin-bottom: 24px; }
+.clone-artist-title { font-size: 30px; font-weight: 700; margin: 0 0 8px; }
+.clone-artist-sub { color: #5c6570; margin: 0; }
+.clone-ticket-list { display: flex; flex-direction: column; gap: 12px; }
