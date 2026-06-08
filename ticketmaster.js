@@ -19,13 +19,14 @@ const TM_SEGMENTS = {
   theatre: 'Arts & Theatre',
 };
 
-async function fetchEvents({ segmentName = 'Music', size = 12 } = {}) {
+async function fetchEvents({ segmentName = 'Music', size = 12, city = '' } = {}) {
   const params = new URLSearchParams({
     apikey: TM_API_KEY,
     segmentName,
     sort: 'date,asc',
     size: String(size),
   });
+  if (city) params.set('city', city);
   const res = await fetch(`${TM_BASE}/events.json?${params}`);
   if (!res.ok) throw new Error(`Ticketmaster API error: ${res.status}`);
   const data = await res.json();
@@ -224,33 +225,60 @@ function fillCarouselCard(templateNode, ev) {
   return card;
 }
 
-async function fillCarousel(headingText, category) {
+async function fillCarousel(headingText, category, city = '') {
   const found = findCarouselTrack(headingText);
   if (!found) return; // section not on this page -> nothing to do
+  // Hide the static cards while we fetch so the user never sees a flash of
+  // the original placeholder content before the live cards land.
+  found.track.style.visibility = 'hidden';
   let events;
   try {
-    events = (await fetchEvents({ segmentName: category, size: 10 }))
+    events = (await fetchEvents({ segmentName: category, size: 10, city }))
       .map(mapEventToCard)
       .filter(e => e.title);
   } catch (err) {
     console.error(`[ticketmaster] "${headingText}" load failed:`, err);
-    return; // Graceful fallback: leave the original static markup in place
+    found.track.style.visibility = ''; // fallback: reveal original cards
+    return;
   }
-  if (!events.length) return; // fallback: keep original cards
+  if (!events.length) { found.track.style.visibility = ''; return; }
   const fragment = document.createDocumentFragment();
   events.forEach(ev => fragment.appendChild(fillCarouselCard(found.template, ev)));
   found.track.replaceChildren(fragment);
+  found.track.style.visibility = '';
+}
+
+let TM_CURRENT_CITY = '';
+
+function refreshCarousels() {
+  Object.entries(CAROUSEL_CATEGORIES).forEach(([heading, category]) => {
+    fillCarousel(heading, category, TM_CURRENT_CITY);
+  });
 }
 
 function initLiveCarousels() {
   // Only act on the homepage (carousels present); other pages are skipped.
   if (!document.querySelector('[data-carousel-index]')) return;
-  Object.entries(CAROUSEL_CATEGORIES).forEach(([heading, category]) => {
-    fillCarousel(heading, category);
+  refreshCarousels();
+}
+
+// Cities offered by the original "Filter by location" combobox. Selecting one
+// re-queries Ticketmaster scoped to that city, so every carousel reflects it.
+const TM_CITIES = ['Paris', 'London', 'Cologne', 'Berlin', 'Madrid', 'Amsterdam', 'New York'];
+
+function wireLocationFilter() {
+  const combobox = document.querySelector('[role="combobox"][aria-label="Filter by location"]');
+  const label = combobox?.querySelector('.sc-bCwfaA');
+  if (!combobox || !label || typeof attachDropdown !== 'function') return;
+  attachDropdown(combobox, TM_CITIES.map(c => ({ label: c })), (opt) => {
+    label.textContent = opt.label;
+    TM_CURRENT_CITY = opt.label;
+    refreshCarousels();
   });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   initLiveGrid();      // artist.html category grid
   initLiveCarousels(); // index.html homepage carousels
+  wireLocationFilter(); // "Filter by location" combobox -> live city-scoped queries
 });
