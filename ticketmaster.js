@@ -236,22 +236,12 @@ async function initLiveGrid() {
   const firstCard = document.querySelector('a[class*="eventGridListItem__container"]');
   if (!firstCard) return; // not a grid page
 
-  // The artist page can ship either ONE grid or TWO. Detect them explicitly by
-  // their data-testid so we never process the same <ul> twice.
-  let primaryUl = document.querySelector('ul[data-testid="primaryGrid"]');
-  let restUl = document.querySelector('ul[data-testid="restGrid"]');
-  // Fallback for snapshots without testids: use whatever <ul> holds firstCard.
-  if (!primaryUl && !restUl) {
-    primaryUl = firstCard.closest('ul');
-  }
-  // If only restGrid exists, treat IT as the single primary grid (and disable
-  // the secondary path) so we don't double-render into the same element.
-  if (!primaryUl && restUl) { primaryUl = restUl; restUl = null; }
-  const ul = primaryUl;
-  if (!ul) return;
-  const cardLi = (Array.from(ul.children).find(li =>
-    li.querySelector && li.querySelector('a[class*="eventGridListItem__container"]'))) || firstCard.closest('li');
-  if (!cardLi) return;
+  // The grid is a <ul data-testid="primaryGrid"> whose first <li> is a heading
+  // ("N events near you") and whose remaining <li>s each wrap one card. We clone
+  // the WHOLE <li> per event so the grid layout/classes stay intact.
+  const cardLi = firstCard.closest('li');
+  const ul = cardLi ? cardLi.parentElement : firstCard.parentElement;
+  if (!cardLi || !ul) return;
 
   const q = new URLSearchParams(location.search);
   const attractionId = q.get('attractionId');
@@ -263,6 +253,7 @@ async function initLiveGrid() {
   const gridSection = ul.closest('[class*="sc-oo2xkq-1"]') || ul.parentElement;
   if (gridSection) gridSection.style.visibility = 'hidden';
 
+  const restUl = document.querySelector('ul[data-testid="restGrid"]');
   const restCardLiTpl = restUl
     ? Array.from(restUl.children).find(li => li.querySelector('a[class*="eventGridListItem__container"]'))
     : null;
