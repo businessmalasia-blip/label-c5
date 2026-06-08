@@ -163,4 +163,94 @@ function liveEventFromUrl() {
   };
 }
 
-document.addEventListener('DOMContentLoaded', initLiveGrid);
+// ---------- HOMEPAGE CAROUSELS ----------
+// Each real content carousel on the homepage is filled with live data for a
+// dedicated category. We locate the carousel by its section heading text, then
+// clone the carousel's OWN first card so the markup/classes stay pixel-perfect.
+const CAROUSEL_CATEGORIES = {
+  'Popular events': 'Music',
+  'Recommended for you': 'Sports',
+  'Recently viewed': 'Arts & Theatre',
+};
+
+function findCarouselTrack(headingText) {
+  const heading = Array.from(document.querySelectorAll('h2, h3'))
+    .find(h => h.textContent.trim() === headingText);
+  if (!heading) return null;
+  // Walk up until we reach the ancestor that actually contains the carousel.
+  let scope = heading.parentElement;
+  for (let i = 0; i < 4 && scope; i++) {
+    const firstCard = scope.querySelector('[data-carousel-index]');
+    if (firstCard) return { track: firstCard.parentElement, template: firstCard };
+    scope = scope.parentElement;
+  }
+  return null;
+}
+
+// Format a TM localDate into the carousel's "10 Jun" style subtitle.
+function shortDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  return isNaN(d) ? '' : `${d.getDate()} ${TM_MONTHS[d.getMonth()]}`;
+}
+
+// Inject one live event into a cloned carousel card (title + date + image),
+// keeping the original viagogo markup/classes 1:1.
+function fillCarouselCard(templateNode, ev) {
+  const card = templateNode.cloneNode(true);
+
+  const img = card.querySelector('img[alt]');
+  if (img) {
+    if (ev.image) img.setAttribute('src', ev.image);
+    img.setAttribute('alt', ev.title);
+  }
+  // Card title lives in an h2/h3 inside the card
+  const title = card.querySelector('h2, h3');
+  if (title) title.textContent = ev.title;
+
+  // Subtitle <p> (date / location) — any <p> that is not the Follow control
+  const subtitle = Array.from(card.querySelectorAll('p')).find(p => !p.closest('button'));
+  if (subtitle) {
+    subtitle.textContent = [shortDate(ev.date), ev.city].filter(Boolean).join(' · ') || 'See dates';
+  }
+
+  // The overlay <a> is the card's click target -> route to the detail page
+  // with this specific event's params (no hardcoded artist anywhere).
+  const link = card.querySelector('a[aria-label]');
+  if (link) {
+    link.setAttribute('href', `fticket.html?${tmEventParams(ev)}`);
+    link.setAttribute('aria-label', ev.title);
+  }
+  return card;
+}
+
+async function fillCarousel(headingText, category) {
+  const found = findCarouselTrack(headingText);
+  if (!found) return; // section not on this page -> nothing to do
+  let events;
+  try {
+    events = (await fetchEvents({ segmentName: category, size: 10 }))
+      .map(mapEventToCard)
+      .filter(e => e.title);
+  } catch (err) {
+    console.error(`[ticketmaster] "${headingText}" load failed:`, err);
+    return; // Graceful fallback: leave the original static markup in place
+  }
+  if (!events.length) return; // fallback: keep original cards
+  const fragment = document.createDocumentFragment();
+  events.forEach(ev => fragment.appendChild(fillCarouselCard(found.template, ev)));
+  found.track.replaceChildren(fragment);
+}
+
+function initLiveCarousels() {
+  // Only act on the homepage (carousels present); other pages are skipped.
+  if (!document.querySelector('[data-carousel-index]')) return;
+  Object.entries(CAROUSEL_CATEGORIES).forEach(([heading, category]) => {
+    fillCarousel(heading, category);
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initLiveGrid();      // artist.html category grid
+  initLiveCarousels(); // index.html homepage carousels
+});
