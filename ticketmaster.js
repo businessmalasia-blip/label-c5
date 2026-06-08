@@ -40,21 +40,39 @@ async function fetchEventById(id) {
   return res.json();
 }
 
+// All events (tour dates) for one attraction/performer — powers the artist page.
+async function fetchEventsByAttraction(attractionId, { size = 40 } = {}) {
+  const params = new URLSearchParams({
+    apikey: TM_API_KEY,
+    attractionId,
+    sort: 'date,asc',
+    size: String(size),
+  });
+  const res = await fetch(`${TM_BASE}/events.json?${params}`);
+  if (!res.ok) throw new Error(`Ticketmaster API error: ${res.status}`);
+  const data = await res.json();
+  return data._embedded?.events || [];
+}
+
 // ---------- 2. ADAPTER LAYER ----------
 // Raw TM event -> flat object with exactly the fields our card markup needs.
 function mapEventToCard(raw) {
   const venue = raw._embedded?.venues?.[0];
+  const attraction = raw._embedded?.attractions?.[0];
   const image = (raw.images || []).find(i => i.width >= 640) || raw.images?.[0];
   const price = raw.priceRanges?.[0]?.min;
   const currency = raw.priceRanges?.[0]?.currency || 'USD';
   return {
     id: raw.id,
     title: raw.name,
+    attractionId: attraction?.id || '',
+    attractionName: attraction?.name || raw.name,
     date: raw.dates?.start?.localDate || '',
     time: raw.dates?.start?.localTime || '',
     venue: venue?.name || 'Venue TBA',
     city: venue?.city?.name || '',
     country: venue?.country?.name || '',
+    countryCode: venue?.country?.countryCode || '',
     price: price != null ? Math.round(price) : null,
     currency,
     image: image?.url || '',
@@ -74,62 +92,103 @@ function tmEventParams(ev) {
     city: ev.city,
     country: ev.country,
     date: ev.date,
+    time: ev.time || '',
     price: ev.price ?? '',
     currency: ev.currency,
     img: ev.image,
   }).toString();
 }
 
-function setBdi(node, selectorText, value) {
-  if (node) node.textContent = value;
+// Map a currency code to its symbol for the "From €309" style price lines.
+const TM_CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', TRY: '₺', CAD: '$', AUD: '$' };
+function currencySymbol(code) { return TM_CURRENCY_SYMBOLS[code] || (code ? code + ' ' : '$'); }
+
+// "7:00 PM" from a 24h "19:00:00" local time.
+function formatClock(localTime) {
+  if (!localTime) return 'Time TBA';
+  const [h, m] = localTime.split(':');
+  let hour = parseInt(h, 10);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  hour = hour % 12 || 12;
+  return `${hour}:${m} ${ampm}`;
 }
 
-// Clone the ORIGINAL viagogo grid card and inject live data into it.
+// Clone the ORIGINAL viagogo artist-grid card and inject live data into the
+// EXACT elements it ships with — flag stays a flag, every bdi keeps its slot.
 function fillGridCard(templateNode, ev) {
   const card = templateNode.cloneNode(true);
 
-  // Route + accessible title
+  // Route every card to ITS OWN event (real params, no hardcode) + a11y title
   card.setAttribute('href', `fticket.html?${tmEventParams(ev)}`);
   card.setAttribute('title', ev.title);
 
   // Calendar block (month / day / weekday)
   const d = ev.date ? new Date(ev.date + 'T00:00:00') : null;
   if (d && !isNaN(d)) {
-    setBdi(card.querySelector('.eventGridListItemCalendar__contentSecondary'), '', TM_MONTHS[d.getMonth()]);
-    setBdi(card.querySelector('.eventGridListItemCalendar__contentPrimary'), '', String(d.getDate()));
-    setBdi(card.querySelector('.eventGridListItemCalendar__chinContent'), '', TM_WEEKDAYS[d.getDay()]);
+    const sec = card.querySelector('.eventGridListItemCalendar__contentSecondary');
+    const pri = card.querySelector('.eventGridListItemCalendar__contentPrimary');
+    const chin = card.querySelector('.eventGridListItemCalendar__chinContent');
+    if (sec) sec.textContent = TM_MONTHS[d.getMonth()];
+    if (pri) pri.textContent = String(d.getDate());
+    if (chin) chin.textContent = TM_WEEKDAYS[d.getDay()];
     const timeEl = card.querySelector('time');
     if (timeEl) timeEl.setAttribute('datetime', ev.date);
   }
 
-  // Body: title, time, location, venue (the original card has several <bdi>s)
-  const bdis = card.querySelectorAll('.eventGridListItemBody__container bdi');
-  if (bdis[0]) bdis[0].textContent = ev.title;
-  if (bdis[1]) bdis[1].textContent = ev.time ? ev.time.slice(0, 5) : 'Time TBA';
-  if (bdis[2]) bdis[2].textContent = [ev.city, ev.country].filter(Boolean).join(', ');
-  if (bdis[3]) bdis[3].textContent = ev.venue;
-  if (bdis[4]) bdis[4].textContent = ev.venue;
+  // Country flag — keep it a flag, just swap to the event's country.
+  const flag = card.querySelector('.eventGridListItemContent__contentFlag');
+  if (flag && ev.countryCode) {
+    flag.setAttribute('src', `https://img.vggcdn.net/broadway-icons/v2.16.0/flags/small/${ev.countryCode.toLowerCase()}.svg`);
+    flag.setAttribute('alt', `Flag of ${ev.countryCode.toUpperCase()}`);
+  }
 
-  // Real poster from the TM CDN
-  const img = card.querySelector('.eventGridListItemBody__container img, img[alt]');
-  if (img && ev.image) { img.setAttribute('src', ev.image); img.setAttribute('alt', ev.title); }
+  // Location (sibling of flag) + venue (second content part) in the title row.
+  const titleParts = card.querySelectorAll('.eventGridListItemTitle__title .eventGridListItemContent__contentPart');
+  const locBdi = titleParts[0]?.querySelector('bdi');
+  if (locBdi) locBdi.textContent = [ev.city, ev.country].filter(Boolean).join(', ') || ev.country || '—';
+  const venueBdi = titleParts[1]?.querySelector('bdi');
+  if (venueBdi) venueBdi.textContent = ev.venue;
+
+  // Subtitle row: "From €309" / time / artist name.
+  const subParts = card.querySelectorAll('.eventGridListItemSubtitle__subtitle .eventGridListItemContent__contentPart');
+  const priceBdi = subParts[0]?.querySelector('bdi');
+  if (priceBdi) priceBdi.textContent = ev.price != null ? `From ${currencySymbol(ev.currency)}${ev.price}` : 'See prices';
+  const timeBdi = subParts[1]?.querySelector('bdi');
+  if (timeBdi) timeBdi.textContent = formatClock(ev.time);
+  const nameBdi = subParts[2]?.querySelector('bdi');
+  if (nameBdi) nameBdi.textContent = ev.attractionName || ev.title;
 
   return card;
 }
 
-// Replace the static demo grid on artist.html with a live, category-driven one.
+// Repaint the artist page header (h1 "<Artist> Tickets") for the loaded artist.
+function paintArtistHeader(name) {
+  if (!name) return;
+  const h1 = document.querySelector('h1');
+  if (h1) h1.textContent = `${name} Tickets`;
+  document.title = `${name} Tickets - viagogo`;
+}
+
+// Replace the static demo grid on artist.html with a live grid. If the page was
+// opened for a specific artist (?attractionId=), we load THAT artist's full
+// list of tour dates; otherwise we fall back to a category feed.
 async function initLiveGrid() {
   const cards = document.querySelectorAll('a[class*="eventGridListItem__container"]');
   if (!cards.length) return; // not a grid page
   const template = cards[0];
   const container = template.parentElement;
 
-  const category = new URLSearchParams(location.search).get('cat') || 'concert';
+  const q = new URLSearchParams(location.search);
+  const attractionId = q.get('attractionId');
+  const artistName = q.get('name');
+  paintArtistHeader(artistName);
+
   let events;
   try {
-    events = (await fetchEvents({ segmentName: TM_SEGMENTS[category] || 'Music', size: 12 }))
-      .map(mapEventToCard)
-      .filter(e => e.title);
+    const raw = attractionId
+      ? await fetchEventsByAttraction(attractionId)
+      : await fetchEvents({ segmentName: TM_SEGMENTS[q.get('cat')] || 'Music', size: 12 });
+    events = raw.map(mapEventToCard).filter(e => e.title);
   } catch (err) {
     console.error('[ticketmaster] grid load failed:', err);
     return; // leave original markup untouched on failure
@@ -156,8 +215,8 @@ function liveEventFromUrl() {
     venue: q.get('venue') || 'Venue TBA',
     city: q.get('city') || '',
     country: q.get('country') || '',
-    date: q.get('date') ? `${q.get('date')}T19:00:00` : new Date().toISOString(),
-    time: 'See listings',
+    date: q.get('date') ? `${q.get('date')}T${q.get('time') || '19:00:00'}` : new Date().toISOString(),
+    time: formatClock(q.get('time')),
     currency: q.get('currency') === 'USD' ? '$' : (q.get('currency') || '$'),
     basePrice: Number.isFinite(price) && price > 0 ? price : 120,
     _live: true,
@@ -215,11 +274,16 @@ function fillCarouselCard(templateNode, ev) {
     subtitle.textContent = [shortDate(ev.date), ev.city].filter(Boolean).join(' · ') || 'See dates';
   }
 
-  // The overlay <a> is the card's click target -> route to the detail page
-  // with this specific event's params (no hardcoded artist anywhere).
+  // The overlay <a> is the card's click target. If this event belongs to an
+  // attraction (artist/performer), route to the ARTIST page so all of that
+  // artist's tour dates load — exactly like clicking an artist on viagogo.
+  // Otherwise fall straight through to the event detail page.
   const link = card.querySelector('a[aria-label]');
   if (link) {
-    link.setAttribute('href', `fticket.html?${tmEventParams(ev)}`);
+    const href = ev.attractionId
+      ? `artist.html?attractionId=${encodeURIComponent(ev.attractionId)}&name=${encodeURIComponent(ev.attractionName || ev.title)}`
+      : `fticket.html?${tmEventParams(ev)}`;
+    link.setAttribute('href', href);
     link.setAttribute('aria-label', ev.title);
   }
   return card;
