@@ -8,7 +8,8 @@
 <link rel="stylesheet" href="styles_examples_of_ticket_to_BadBunny.css">
 <style>
   /* Layout-only rules for the checkout shell — colours/typography come from
-     viagogo's own loaded stylesheet (bway-* utility classes used throughout) */
+     viagogo's own loaded stylesheet (bway-* utility classes used throughout).
+     This screen is purely visual: NO payment fields, NO data collection. */
   body { background: #f4f6f5; font-family: 'Inter', sans-serif; margin: 0; }
   .checkout-shell { max-width: 1080px; margin: 0 auto; padding: 24px 16px 80px; display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px; }
   @media (max-width: 860px) { .checkout-shell { grid-template-columns: 1fr; } }
@@ -17,18 +18,19 @@
   .checkout-logo { font-weight: 700; font-size: 20px; color: #4C5055; text-decoration: none; }
   .checkout-timer { display: flex; align-items: center; gap: 8px; background: #FFF4E5; color: #B45309; border-radius: 20px; padding: 6px 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .checkout-h2 { font-size: 18px; font-weight: 700; margin: 0 0 16px; }
-  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-  .field { display: flex; flex-direction: column; gap: 6px; }
-  .field label { font-size: 13px; color: #5C6570; font-weight: 500; }
-  .field input { border: 1px solid #d8dade; border-radius: 8px; padding: 12px 14px; font-size: 15px; font-family: inherit; }
-  .field input:focus { outline: none; border-color: #00865A; box-shadow: 0 0 0 3px rgba(0,134,90,0.15); }
-  .secure-row { display: flex; align-items: center; gap: 8px; color: #5C6570; font-size: 13px; margin-top: 8px; }
   .order-line { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; color: #2F343B; border-bottom: 1px solid #ECEEF0; }
   .order-line.total { font-weight: 700; font-size: 16px; border-bottom: none; padding-top: 14px; }
-  .pay-btn { width: 100%; background: #00865A; color: #fff; border: none; border-radius: 28px; padding: 16px; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 16px; }
-  .pay-btn:disabled { background: #9aa0a6; cursor: not-allowed; }
-  .pay-btn:hover:not(:disabled) { background: #00714C; }
+  .secure-row { display: flex; align-items: center; gap: 8px; color: #5C6570; font-size: 13px; margin-top: 8px; }
+  .step-note { font-size: 14px; color: #5C6570; line-height: 1.5; }
+  .cta-btn { width: 100%; background: #00865A; color: #fff; border: none; border-radius: 28px; padding: 16px; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 16px; }
+  .cta-btn:disabled { background: #9aa0a6; cursor: not-allowed; }
+  .cta-btn:hover:not(:disabled) { background: #00714C; }
   .lock-note { display: flex; align-items: center; gap: 6px; justify-content: center; color: #5C6570; font-size: 12px; margin-top: 10px; }
+  /* Cancellation modal (shown when the 10:00 reservation timer expires) */
+  .vg-modal-backdrop { position: fixed; inset: 0; background: rgba(15,24,40,0.55); display: none; align-items: center; justify-content: center; z-index: 1000; }
+  .vg-modal { background: #fff; border-radius: 16px; max-width: 420px; width: calc(100% - 32px); padding: 28px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center; }
+  .vg-modal h3 { font-size: 20px; font-weight: 700; margin: 12px 0 8px; color: #101828; }
+  .vg-modal p { font-size: 14px; color: #5C6570; margin: 0 0 20px; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -44,25 +46,16 @@
 <div class="checkout-shell">
   <div>
     <div class="checkout-card">
-      <h2 class="checkout-h2">Contact details</h2>
-      <div class="field-row">
-        <div class="field"><label for="cf-first">First name</label><input id="cf-first" type="text" autocomplete="given-name" placeholder="Jane"></div>
-        <div class="field"><label for="cf-last">Last name</label><input id="cf-last" type="text" autocomplete="family-name" placeholder="Doe"></div>
-      </div>
-      <div class="field"><label for="cf-email">Email address</label><input id="cf-email" type="email" autocomplete="email" placeholder="jane.doe@example.com"></div>
+      <h2 class="checkout-h2">Your selection</h2>
+      <div id="selection-details" class="step-note"></div>
     </div>
 
     <div class="checkout-card">
-      <h2 class="checkout-h2">Payment details</h2>
-      <div class="field"><label for="cf-card-number">Card number</label><input id="cf-card-number" inputmode="numeric" autocomplete="cc-number" placeholder="1234 1234 1234 1234"></div>
-      <div class="field-row">
-        <div class="field"><label for="cf-expiry">Expiry date</label><input id="cf-expiry" inputmode="numeric" autocomplete="cc-exp" placeholder="MM / YY"></div>
-        <div class="field"><label for="cf-cvc">Security code</label><input id="cf-cvc" inputmode="numeric" autocomplete="cc-csc" placeholder="CVC"></div>
-      </div>
-      <div class="field"><label for="cf-card-name">Name on card</label><input id="cf-card-name" autocomplete="cc-name" placeholder="Jane Doe"></div>
+      <h2 class="checkout-h2">Delivery</h2>
+      <p class="step-note">Mobile tickets — transferred to you electronically before the event. Nothing to print.</p>
       <div class="secure-row">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 7V5a4 4 0 1 1 8 0v2h.5A1.5 1.5 0 0 1 14 8.5v5A1.5 1.5 0 0 1 12.5 15h-9A1.5 1.5 0 0 1 2 13.5v-5A1.5 1.5 0 0 1 3.5 7H4Zm1.5-2v2h5V5a2.5 2.5 0 0 0-5 0Z" fill="currentColor"/></svg>
-        Your payment information is encrypted and processed securely
+        Every order is protected by the viagogo Guarantee
       </div>
     </div>
   </div>
@@ -72,44 +65,78 @@
       <h2 class="checkout-h2">Order summary</h2>
       <div id="order-summary"></div>
       <div class="order-line total"><span>Total</span><span id="order-total">—</span></div>
-      <button id="pay-btn" class="pay-btn" type="button">Pay now</button>
+      <button id="continue-btn" class="cta-btn" type="button">Continue</button>
       <div class="lock-note">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 7V5a4 4 0 1 1 8 0v2h.5A1.5 1.5 0 0 1 14 8.5v5A1.5 1.5 0 0 1 12.5 15h-9A1.5 1.5 0 0 1 2 13.5v-5A1.5 1.5 0 0 1 3.5 7H4Zm1.5-2v2h5V5a2.5 2.5 0 0 0-5 0Z" fill="currentColor"/></svg>
-        100% guaranteed — secure checkout
+        Secure checkout · 100% guaranteed
       </div>
     </div>
   </div>
 </div>
 
+<!-- Reservation-expired modal -->
+<div class="vg-modal-backdrop" id="expiry-modal">
+  <div class="vg-modal" role="dialog" aria-modal="true" aria-labelledby="expiry-title">
+    <svg width="40" height="40" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 12.5A5.5 5.5 0 1 1 8 2.5a5.5 5.5 0 0 1 0 11Z" fill="#B45309"/><path d="M8.75 4.5h-1.5v4l3.25 1.95.75-1.23-2.5-1.48V4.5Z" fill="#B45309"/></svg>
+    <h3 id="expiry-title">Your reservation has expired</h3>
+    <p>We couldn't hold these tickets any longer. They've been released back to the marketplace. You can head back and pick your seats again.</p>
+    <button class="cta-btn" type="button" onclick="window.location.href='index.html'">Back to search</button>
+  </div>
+</div>
+
 <script>
 // ---------------------------------------------------------------------------
-// Checkout — placeholder screen wired to the same query-string contract the
-// universal ticket router uses (listing_id, price, section, event_id).
-// processPayment() is the seam for a future custom payment-acquiring backend.
+// Checkout — purely visual confirmation screen. It reads the selected ticket
+// from the URL (with a localStorage fallback) populated by app.js, mirrors it
+// into the order summary, and runs the 10:00 reservation countdown. There are
+// NO card fields and NO data collection here.
 // ---------------------------------------------------------------------------
-function getParam(name) { return new URLSearchParams(window.location.search).get(name); }
+function getSelection() {
+  const q = new URLSearchParams(window.location.search);
+  const fromUrl = {
+    listingId: q.get('listing_id'),
+    eventId: q.get('event_id'),
+    section: q.get('section'),
+    row: q.get('row'),
+    seat: q.get('seat'),
+    price: q.get('price'),
+  };
+  if (fromUrl.listingId) {
+    try { localStorage.setItem('vg_selection', JSON.stringify(fromUrl)); } catch (e) {}
+    return fromUrl;
+  }
+  try { return JSON.parse(localStorage.getItem('vg_selection')) || fromUrl; } catch (e) { return fromUrl; }
+}
 
-function paintOrderSummary() {
-  const section = getParam('section') || 'General Admission';
-  const priceRaw = getParam('price') || '€0';
+function paintSelection(sel) {
+  const priceRaw = sel.price || '€0';
   const price = parseFloat(priceRaw.replace(/[^\d.]/g, '')) || 0;
   const currency = (priceRaw.match(/[^\d.,\s]+/) || ['€'])[0];
-  const fee = Math.round(price * 0.15 * 100) / 100;
-  const total = Math.round((price + fee) * 100) / 100;
+  const qty = 1;
+  const subtotal = price * qty;
+  const fee = Math.round(subtotal * 0.15 * 100) / 100;
+  const total = Math.round((subtotal + fee) * 100) / 100;
 
-  const summary = document.getElementById('order-summary');
-  summary.innerHTML = `
-    <div class="order-line"><span>${section}</span><span>${currency}${price.toFixed(2)}</span></div>
-    <div class="order-line"><span>Service fee</span><span>${currency}${fee.toFixed(2)}</span></div>
-  `;
+  const sectionTxt = (sel.section || 'General Admission').replace(/^Section\s*/i, 'Section ');
+  const rowTxt = sel.row ? sel.row.replace(/^Row\s*/i, 'Row ') : '';
+  const seatTxt = sel.seat && sel.seat !== '—' ? `Seat ${sel.seat}` : '';
+
+  document.getElementById('selection-details').innerHTML =
+    `<strong>${sectionTxt}</strong>` +
+    (rowTxt ? ` · ${rowTxt}` : '') +
+    (seatTxt ? ` · ${seatTxt}` : '') +
+    `<br>${qty} ticket · mobile delivery`;
+
+  document.getElementById('order-summary').innerHTML =
+    `<div class="order-line"><span>${sectionTxt}${rowTxt ? ', ' + rowTxt : ''}</span><span>${currency}${price.toFixed(2)}</span></div>` +
+    `<div class="order-line"><span>Service fee</span><span>${currency}${fee.toFixed(2)}</span></div>`;
   document.getElementById('order-total').textContent = `${currency}${total.toFixed(2)}`;
-  return { listingId: getParam('listing_id'), eventId: getParam('event_id'), section, currency, total };
 }
 
 function startCountdown(minutes) {
   let remaining = minutes * 60;
   const el = document.getElementById('checkout-timer');
-  const payBtn = document.getElementById('pay-btn');
+  const btn = document.getElementById('continue-btn');
   const tick = () => {
     const m = Math.floor(remaining / 60);
     const s = remaining % 60;
@@ -117,8 +144,9 @@ function startCountdown(minutes) {
     if (remaining <= 0) {
       clearInterval(timer);
       el.textContent = 'Expired';
-      payBtn.disabled = true;
-      payBtn.textContent = 'Reservation expired';
+      btn.disabled = true;
+      btn.textContent = 'Reservation expired';
+      document.getElementById('expiry-modal').style.display = 'flex';
       return;
     }
     remaining -= 1;
@@ -127,40 +155,11 @@ function startCountdown(minutes) {
   tick();
 }
 
-// Placeholder for a future custom payment-acquiring integration.
-// Real implementation would POST `paymentData` to the acquirer/PSP endpoint
-// and handle 3-D Secure / webhook confirmation here.
-function processPayment(paymentData) {
-  console.log('processPayment() called with:', paymentData);
-  return Promise.resolve({ status: 'stub', received: paymentData });
-}
-
 document.addEventListener('DOMContentLoaded', () => {
-  const order = paintOrderSummary();
+  paintSelection(getSelection());
   startCountdown(10);
-
-  document.getElementById('pay-btn').addEventListener('click', () => {
-    const paymentData = {
-      listingId: order.listingId,
-      eventId: order.eventId,
-      section: order.section,
-      amount: order.total,
-      currency: order.currency,
-      customer: {
-        firstName: document.getElementById('cf-first').value,
-        lastName: document.getElementById('cf-last').value,
-        email: document.getElementById('cf-email').value,
-      },
-      card: {
-        number: document.getElementById('cf-card-number').value,
-        expiry: document.getElementById('cf-expiry').value,
-        cvc: document.getElementById('cf-cvc').value,
-        name: document.getElementById('cf-card-name').value,
-      },
-    };
-    processPayment(paymentData).then(() => {
-      alert('Payment stub submitted — wire processPayment() to your acquirer to go live.');
-    });
+  document.getElementById('continue-btn').addEventListener('click', () => {
+    document.getElementById('continue-btn').textContent = 'Reserved ✓';
   });
 });
 </script>

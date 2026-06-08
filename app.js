@@ -105,7 +105,11 @@ function wireUniversalRouter() {
     const id = card.getAttribute('data-listing-id');
     const price = card.getAttribute('data-price') || '';
     const section = card.querySelector('h3')?.textContent?.trim() || '';
-    const params = new URLSearchParams({ listing_id: id, price, section, event_id: getQueryParam('event_id') || '0' });
+    const row = (card.querySelector('span'))
+      ? Array.from(card.querySelectorAll('span')).map(s => s.textContent).find(t => /Row/.test(t)) || ''
+      : '';
+    const seat = card.getAttribute('data-seat') || '';
+    const params = new URLSearchParams({ listing_id: id, price, section, row, seat, event_id: getQueryParam('event_id') || '0' });
     window.location.href = `checkout.html?${params.toString()}`;
   });
 }
@@ -172,19 +176,21 @@ function buildTicketsForEvent(ev) {
   const seed = hashSeed(`${ev.id}-${ev.artist}-${ev.venue}`);
   const rand = seededRandom(seed);
   const sprites = getMapSprites();
-  const count = 12 + Math.floor(rand() * 25); // gives the "endless list" feel, scales per event
+  const count = 50 + Math.floor(rand() * 101); // 50..150 listings, stable per seed
   const tickets = [];
   for (let i = 0; i < count; i++) {
     const sp = sprites.length
       ? sprites[Math.floor(rand() * sprites.length)]
       : { sprite: String(1191644 + i), eid: '1152' };
     const section = sectionLabelForSprite(sp.sprite);
+    const row = ROWS[Math.floor(rand() * ROWS.length)];
     tickets.push({
       id: String(seed + i * 97),
       feature: `${sp.eid}_${sp.sprite}`, // real map feature id -> drives highlight
       sprite: sp.sprite,
       section,
-      row: ROWS[Math.floor(rand() * ROWS.length)],
+      row,
+      seat: row === '—' ? '—' : String(1 + Math.floor(rand() * 30)),
       qty: 1 + Math.floor(rand() * 4),
       price: Math.round(ev.basePrice * (0.7 + rand() * 1.6)),
       venue: ev.venue,
@@ -196,7 +202,7 @@ function buildTicketsForEvent(ev) {
 
 let ticketCardTemplate = null;
 let currentTickets = [];
-let activeFilters = { qty: 'any', sort: 'price-asc' };
+let activeFilters = { qty: 'any', sort: 'price-asc', sprite: null };
 
 function captureTicketTemplate() {
   const list = document.getElementById('listings-container');
@@ -204,7 +210,7 @@ function captureTicketTemplate() {
   const wrapper = list.querySelector('[data-image-container="true"]');
   if (!wrapper) return null;
   let tpl = wrapper.outerHTML;
-  tpl = tpl.replace(/data-listing-id="\d+"/, 'data-listing-id="__ID__"')
+  tpl = tpl.replace(/data-listing-id="\d+"/, 'data-listing-id="__ID__" data-seat="__SEAT__" data-sprite="__SPRITE__"')
            .replace(/data-feature-id="[^"]*"/, 'data-feature-id="__FEATURE__"')
            .replace(/data-price="[^"]*"/, 'data-price="__PRICE__"')
            .replace(/alt="[^"]*- Section [^"]*"/, 'alt="__VENUE__ - Section __SECTION__"')
@@ -224,6 +230,8 @@ function renderTicket(t) {
     .replaceAll('__VENUE__', t.venue)
     .replaceAll('__SECTION__', t.section)
     .replaceAll('__ROW__', t.row)
+    .replaceAll('__SEAT__', t.seat)
+    .replaceAll('__SPRITE__', t.sprite)
     .replaceAll('__QTY__', t.qty)
     .replaceAll('__PLURAL__', t.qty === 1 ? '' : 's');
 }
@@ -234,6 +242,9 @@ function applyFiltersAndRender() {
   let filtered = currentTickets;
   if (activeFilters.qty !== 'any') {
     filtered = filtered.filter(t => t.qty === Number(activeFilters.qty));
+  }
+  if (activeFilters.sprite) {
+    filtered = filtered.filter(t => t.sprite === activeFilters.sprite);
   }
   filtered = [...filtered].sort((a, b) => activeFilters.sort === 'price-asc' ? a.price - b.price : b.price - a.price);
   list.innerHTML = filtered.map(renderTicket).join('');
@@ -365,29 +376,53 @@ function buildMapOverlay() {
   svg.style.cssText =
     'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4;';
 
+  // Only sections that actually have listings should react to clicks.
+  const ticketSprites = new Set(currentTickets.map(t => t.sprite));
+
   const geometry = def.cloneNode(true);
   geometry.removeAttribute('id');
-  // Fully transparent at rest -> the live map shows through untouched.
-  geometry.querySelectorAll('path').forEach(p => { p.style.display = 'none'; });
+  geometry.querySelectorAll('g[sprite-identifier]').forEach(g => {
+    const sprite = g.getAttribute('sprite-identifier').replace(/^s/, '');
+    const hasTickets = ticketSprites.has(sprite);
+    const paths = Array.from(g.querySelectorAll('path'));
+    paths.forEach((p, i) => {
+      if (i === 0) {
+        // First path becomes an invisible, hit-testable click zone aligned to
+        // the real section geometry (Map -> List interaction).
+        p.style.display = 'block';
+        p.setAttribute('fill-opacity', '0');
+        p.style.pointerEvents = hasTickets ? 'auto' : 'none';
+        p.style.cursor = hasTickets ? 'pointer' : 'default';
+      } else {
+        p.style.display = 'none'; // coloured tier path, shown only when active
+      }
+    });
+    if (!hasTickets) return;
+    // Map -> List: click a sector to filter the list to that section.
+    g.addEventListener('click', () => {
+      selectSprite(activeFilters.sprite === sprite ? null : sprite);
+    });
+  });
   svg.appendChild(geometry);
 
   map.style.position = map.style.position || 'relative';
   map.appendChild(svg);
 }
 
+// Reset every section to idle (transparent), then optionally re-assert the
+// currently-selected section so a sticky selection survives hover-out.
 function clearHighlight() {
-  document
-    .querySelectorAll('#section-map-overlay g[sprite-identifier] path')
-    .forEach(p => { p.style.display = 'none'; });
+  document.querySelectorAll('#section-map-overlay g[sprite-identifier]').forEach(g => {
+    Array.from(g.querySelectorAll('path')).forEach((p, i) => {
+      if (i === 0) { p.setAttribute('fill-opacity', '0'); p.style.display = 'block'; }
+      else { p.style.display = 'none'; }
+    });
+  });
+  if (activeFilters.sprite) paintSprite(activeFilters.sprite);
 }
 
-function highlightSprite(sprite) {
-  buildMapOverlay();
-  clearHighlight();
-  if (!sprite) return;
-  const g = document.querySelector(
-    `#section-map-overlay g[sprite-identifier="s${sprite}"]`
-  );
+function paintSprite(sprite) {
+  const g = document.querySelector(`#section-map-overlay g[sprite-identifier="s${sprite}"]`);
   if (!g) return;
   const paths = Array.from(g.querySelectorAll('path'));
   // The coloured (non-white) path is viagogo's own active fill for the tier.
@@ -397,14 +432,28 @@ function highlightSprite(sprite) {
   active.setAttribute('fill-opacity', '0.9');
 }
 
+function highlightSprite(sprite) {
+  buildMapOverlay();
+  clearHighlight();
+  if (sprite) paintSprite(sprite);
+}
+
+// Sticky selection: filter the list to one section and keep it lit. Passing
+// null clears the filter (used by re-clicking the same sector).
+function selectSprite(sprite) {
+  activeFilters.sprite = sprite;
+  applyFiltersAndRender();
+  highlightSprite(sprite);
+}
+
 function highlightWireUp() {
   buildMapOverlay();
   document.querySelectorAll('#listings-container [data-listing-id]').forEach(card => {
     const sprite = (card.getAttribute('data-feature-id') || '').split('_')[1];
     if (!sprite) return;
+    // List -> Map: transient hover highlight (returns to selection on leave).
     card.addEventListener('mouseenter', () => highlightSprite(sprite));
-    card.addEventListener('mouseleave', clearHighlight);
-    card.addEventListener('click', () => highlightSprite(sprite));
+    card.addEventListener('mouseleave', () => highlightSprite(activeFilters.sprite));
   });
 }
 
