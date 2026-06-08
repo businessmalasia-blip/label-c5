@@ -226,8 +226,25 @@ async function initLiveGrid() {
   const oldCardLis = Array.from(ul.children).filter(li =>
     li.querySelector('a[class*="eventGridListItem__container"]'));
 
+  // The artist page ships TWO grids: primaryGrid ("N events near you") and
+  // restGrid ("N events in all locations", paginated). The original layout is
+  // sized for a FIXED number of cards per grid — if we dump all 40 live events
+  // in, they overflow and punch through everything below. So we cap each grid
+  // to the exact card count the original markup had, and split the events
+  // between them with NO overlap.
+  const restUl = document.querySelector('ul[data-testid="restGrid"]');
+  const oldRestLis = restUl
+    ? Array.from(restUl.children).filter(li =>
+        li.querySelector('a[class*="eventGridListItem__container"]'))
+    : [];
+
+  const primaryCount = Math.min(oldCardLis.length || 3, events.length);
+  const restCount = Math.min(oldRestLis.length || 0, events.length - primaryCount);
+  const primaryEvents = events.slice(0, primaryCount);
+  const restEvents = events.slice(primaryCount, primaryCount + restCount);
+
   const fragment = document.createDocumentFragment();
-  events.forEach(ev => {
+  primaryEvents.forEach(ev => {
     const li = cardLi.cloneNode(true);
     const card = li.querySelector('a[class*="eventGridListItem__container"]');
     if (card) fillGridCard(card, ev);
@@ -237,7 +254,7 @@ async function initLiveGrid() {
   // Update the "N events near you" heading if present.
   const heading = ul.querySelector('h2, h3');
   if (heading && /event/i.test(heading.textContent)) {
-    heading.textContent = `${events.length} event${events.length === 1 ? '' : 's'} near you`;
+    heading.textContent = `${primaryEvents.length} event${primaryEvents.length === 1 ? '' : 's'} near you`;
   }
 
   // Insert the live rows where the old ones were, then drop the old rows.
@@ -248,20 +265,11 @@ async function initLiveGrid() {
     ul.appendChild(fragment);
   }
 
-  // The artist page also ships a SECOND grid — <ul data-testid="restGrid">
-  // ("N events in all locations") — which still held its original Bad Bunny
-  // <li>s (the "lots of Bad Bunny tickets everywhere" bug). Clear it the same
-  // way: drop its stale card <li>s and either repaint it with any leftover
-  // live events, or hide the whole section if we have none to show.
-  const restUl = document.querySelector('ul[data-testid="restGrid"]');
+  // Repaint the secondary grid the same way — drop the stale Bad Bunny cards,
+  // then fill with leftover live events, or hide the whole section if empty.
   if (restUl) {
-    const restCardLi = Array.from(restUl.children).find(li =>
-      li.querySelector('a[class*="eventGridListItem__container"]'));
-    const oldRestLis = Array.from(restUl.children).filter(li =>
-      li.querySelector('a[class*="eventGridListItem__container"]'));
+    const restCardLi = oldRestLis[0];
     oldRestLis.forEach(li => li.remove());
-
-    const restEvents = events.slice(events.length > 1 ? 1 : 0);
     const restHeading = restUl.querySelector('h2, h3, span');
     const section = restUl.closest('.sc-oo2xkq-11, [class*="sc-oo2xkq-11"]') || restUl.parentElement;
 
@@ -279,6 +287,12 @@ async function initLiveGrid() {
       section.style.display = 'none';
     }
   }
+
+  // Pagination under the rest grid points nowhere in our static clone — hide it
+  // so users can't click into a dead/blank page.
+  document.querySelectorAll('[data-testid="pagination"], nav[aria-label*="agination"]').forEach(p => {
+    p.style.display = 'none';
+  });
 
   // Re-tag for the universal router (fticket already gets full data via URL)
   if (typeof tagEventCards === 'function') tagEventCards();
@@ -318,8 +332,13 @@ const CAROUSEL_CATEGORIES = {
 };
 
 function findCarouselTrack(headingText) {
+  // Accept either an exact string or a predicate, so artist-page carousels with
+  // dynamic headings ("Bad Bunny fans also love") can be matched by substring.
+  const match = typeof headingText === 'function'
+    ? headingText
+    : (t) => t === headingText;
   const heading = Array.from(document.querySelectorAll('h2, h3'))
-    .find(h => h.textContent.trim() === headingText);
+    .find(h => match(h.textContent.trim()));
   if (!heading) return null;
   // Walk up until we reach the ancestor that actually contains the carousel.
   let scope = heading.parentElement;
@@ -382,6 +401,14 @@ function fillCarouselCard(templateNode, ev) {
   return card;
 }
 
+// Artist-page recommendation carousels. Headings are dynamic per artist, so we
+// match by substring and fill each with live Music events from Ticketmaster.
+const ARTIST_CAROUSELS = [
+  { match: (t) => /fans also love$/i.test(t), category: 'Music' },
+  { match: (t) => /^Trending events/i.test(t), category: 'Music' },
+  { match: (t) => /^Popular artists near you$/i.test(t), category: 'Music' },
+];
+
 async function fillCarousel(headingText, category, city = '') {
   const found = findCarouselTrack(headingText);
   if (!found) return; // section not on this page -> nothing to do
@@ -414,10 +441,14 @@ function refreshCarousels() {
 }
 
 function initLiveCarousels() {
-  // Only act on the homepage (carousels present); other pages are skipped.
+  // Only act on pages that actually have carousels.
   if (!document.querySelector('[data-carousel-index]')) return;
   hideSkeletonLoaders(); // kill the frozen shimmer blocks under the carousel
-  refreshCarousels();
+  refreshCarousels();    // homepage carousels (exact heading match)
+  // Artist-page recommendation carousels (substring heading match).
+  ARTIST_CAROUSELS.forEach(({ match, category }) => {
+    fillCarousel(match, category, TM_CURRENT_CITY);
+  });
 }
 
 // Cities offered by the original "Filter by location" combobox. Selecting one
