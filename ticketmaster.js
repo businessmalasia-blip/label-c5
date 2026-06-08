@@ -248,6 +248,38 @@ async function initLiveGrid() {
     ul.appendChild(fragment);
   }
 
+  // The artist page also ships a SECOND grid — <ul data-testid="restGrid">
+  // ("N events in all locations") — which still held its original Bad Bunny
+  // <li>s (the "lots of Bad Bunny tickets everywhere" bug). Clear it the same
+  // way: drop its stale card <li>s and either repaint it with any leftover
+  // live events, or hide the whole section if we have none to show.
+  const restUl = document.querySelector('ul[data-testid="restGrid"]');
+  if (restUl) {
+    const restCardLi = Array.from(restUl.children).find(li =>
+      li.querySelector('a[class*="eventGridListItem__container"]'));
+    const oldRestLis = Array.from(restUl.children).filter(li =>
+      li.querySelector('a[class*="eventGridListItem__container"]'));
+    oldRestLis.forEach(li => li.remove());
+
+    const restEvents = events.slice(events.length > 1 ? 1 : 0);
+    const restHeading = restUl.querySelector('h2, h3, span');
+    const section = restUl.closest('.sc-oo2xkq-11, [class*="sc-oo2xkq-11"]') || restUl.parentElement;
+
+    if (restCardLi && restEvents.length) {
+      const restFragment = document.createDocumentFragment();
+      restEvents.forEach(ev => {
+        const li = restCardLi.cloneNode(true);
+        const card = li.querySelector('a[class*="eventGridListItem__container"]');
+        if (card) fillGridCard(card, ev);
+        restFragment.appendChild(li);
+      });
+      restUl.appendChild(restFragment);
+      if (restHeading) restHeading.textContent = `${restEvents.length} event${restEvents.length === 1 ? '' : 's'} in all locations`;
+    } else if (section) {
+      section.style.display = 'none';
+    }
+  }
+
   // Re-tag for the universal router (fticket already gets full data via URL)
   if (typeof tagEventCards === 'function') tagEventCards();
 }
