@@ -142,21 +142,49 @@ function paintEventHeader(ev) {
   document.title = `${ev.artist} Tickets - ${ev.venue} - viagogo`;
 }
 
-const SECTIONS = ['101','102','110','115','117','120','128','134','142','150','160','170','Fosse','Floor A','Floor B'];
 const ROWS = ['1','3','5','6','8','9','12','14','17','20','22','25','31','—'];
+
+// The venue map ships its real section geometry inside the hidden
+// `#section-map-base > #map-def` SVG. Each <g sprite-identifier="sNNN"> is a
+// section; the listing cards reference it via data-feature-id="<eid>_<NNN>".
+// We read those real sprites once so generated tickets point at genuine map
+// sections — that is what makes the hover-highlight land exactly 1:1.
+let MAP_SPRITES = null;
+function getMapSprites() {
+  if (MAP_SPRITES) return MAP_SPRITES;
+  const def = document.querySelector('#section-map-base #map-def');
+  MAP_SPRITES = def
+    ? Array.from(def.querySelectorAll('g[sprite-identifier]')).map(g => ({
+        sprite: g.getAttribute('sprite-identifier').replace(/^s/, ''),
+        eid: g.querySelector('path')?.getAttribute('eid') || '1152',
+      }))
+    : [];
+  return MAP_SPRITES;
+}
+
+// Stable, human-looking section label derived from a real sprite number, so
+// the same map section always shows the same "Section NNN" on its card.
+function sectionLabelForSprite(sprite) {
+  return String(100 + (parseInt(sprite, 10) % 230));
+}
 
 function buildTicketsForEvent(ev) {
   const seed = hashSeed(`${ev.id}-${ev.artist}-${ev.venue}`);
   const rand = seededRandom(seed);
+  const sprites = getMapSprites();
   const count = 12 + Math.floor(rand() * 25); // gives the "endless list" feel, scales per event
   const tickets = [];
   for (let i = 0; i < count; i++) {
-    const section = SECTIONS[Math.floor(rand() * SECTIONS.length)];
+    const sp = sprites.length
+      ? sprites[Math.floor(rand() * sprites.length)]
+      : { sprite: String(1191644 + i), eid: '1152' };
+    const section = sectionLabelForSprite(sp.sprite);
     tickets.push({
       id: String(seed + i * 97),
-      feature: `${(seed % 9000) + i}_${(seed % 1700000) + i}`,
+      feature: `${sp.eid}_${sp.sprite}`, // real map feature id -> drives highlight
+      sprite: sp.sprite,
       section,
-      row: (section.startsWith('Floor') || section === 'Fosse') ? '—' : ROWS[Math.floor(rand() * ROWS.length)],
+      row: ROWS[Math.floor(rand() * ROWS.length)],
       qty: 1 + Math.floor(rand() * 4),
       price: Math.round(ev.basePrice * (0.7 + rand() * 1.6)),
       venue: ev.venue,
@@ -223,82 +251,160 @@ function updateListingsCountLabel(n) {
 //    Original markup is reused (data-testid="event-detail-quantity-filter",
 //    data-testid="event-detail-filters-button"); we just give it behaviour.
 // ---------------------------------------------------------------------------
+// Build a native-feeling dropdown anchored under an original combobox. We do
+// not touch sc-*/bway-* classes or any stylesheet — the menu is a fresh node
+// positioned with inline layout styles, and option text reuses viagogo's own
+// `sc-bCwfaA` typography class so it reads identically to the trigger.
+function attachDropdown(combobox, options, onSelect) {
+  if (!combobox) return;
+  combobox.style.cursor = 'pointer';
+
+  const menu = document.createElement('div');
+  menu.setAttribute('role', 'listbox');
+  menu.style.cssText =
+    'position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:#fff;' +
+    'border:1px solid #E4E6E8;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.14);' +
+    'padding:6px;z-index:50;display:none;';
+
+  options.forEach(opt => {
+    const item = document.createElement('div');
+    item.setAttribute('role', 'option');
+    item.className = 'sc-bCwfaA';
+    item.textContent = opt.label;
+    item.style.cssText = 'padding:10px 12px;border-radius:8px;cursor:pointer;white-space:nowrap;';
+    item.addEventListener('mouseenter', () => { item.style.background = '#F4F6F5'; });
+    item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; });
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.querySelectorAll('[role="option"]').forEach(o => o.setAttribute('aria-selected', 'false'));
+      item.setAttribute('aria-selected', 'true');
+      onSelect(opt);
+      close();
+    });
+    menu.appendChild(item);
+  });
+
+  const host = combobox.closest('[data-testid]') || combobox.parentElement;
+  host.style.position = host.style.position || 'relative';
+  host.appendChild(menu);
+
+  function open() {
+    document.querySelectorAll('[role="listbox"]').forEach(m => { if (m !== menu) m.style.display = 'none'; });
+    menu.style.display = 'block';
+    combobox.setAttribute('aria-expanded', 'true');
+  }
+  function close() {
+    menu.style.display = 'none';
+    combobox.setAttribute('aria-expanded', 'false');
+  }
+  combobox.addEventListener('click', (e) => {
+    e.stopPropagation();
+    menu.style.display === 'block' ? close() : open();
+  });
+  document.addEventListener('click', close);
+}
+
 function wireFilters() {
-  const qtyBox = document.querySelector('[data-testid="event-detail-quantity-filter"] .sc-bCwfaA');
-  if (qtyBox) {
-    const options = ['Any', '1 ticket', '2 tickets', '3 tickets', '4 tickets'];
-    let i = 0;
-    const hitArea = qtyBox.closest('[role="combobox"]');
-    hitArea.style.cursor = 'pointer';
-    hitArea.addEventListener('click', () => {
-      i = (i + 1) % options.length;
-      qtyBox.textContent = options[i];
-      activeFilters.qty = i === 0 ? 'any' : String(i);
+  // Quantity filter — real listbox of ticket counts.
+  const qtyCombo = document.querySelector('[data-testid="event-detail-quantity-filter"] [role="combobox"]');
+  const qtyLabel = qtyCombo?.querySelector('.sc-bCwfaA');
+  if (qtyCombo && qtyLabel) {
+    attachDropdown(qtyCombo, [
+      { label: 'Any number of tickets', value: 'any' },
+      { label: '1 ticket', value: '1' },
+      { label: '2 tickets', value: '2' },
+      { label: '3 tickets', value: '3' },
+      { label: '4 tickets', value: '4' },
+    ], (opt) => {
+      qtyLabel.textContent = opt.value === 'any' ? 'Any' : opt.label;
+      activeFilters.qty = opt.value;
       applyFiltersAndRender();
     });
   }
-  const filterBtn = document.querySelector('[data-testid="event-detail-filters-button"] [role="combobox"]');
-  if (filterBtn) {
-    const label = filterBtn.querySelector('.sc-bCwfaA') || filterBtn;
-    const options = [['Price: low to high', 'price-asc'], ['Price: high to low', 'price-desc']];
-    let i = 0;
-    label.textContent = options[0][0];
-    filterBtn.style.cursor = 'pointer';
-    filterBtn.addEventListener('click', () => {
-      i = (i + 1) % options.length;
-      label.textContent = options[i][0];
-      activeFilters.sort = options[i][1];
+
+  // Sort/price filter — real listbox of sort orders.
+  const sortCombo = document.querySelector('[data-testid="event-detail-filters-button"] [role="combobox"]');
+  const sortLabel = sortCombo?.querySelector('.sc-bCwfaA');
+  if (sortCombo && sortLabel) {
+    sortLabel.textContent = 'Price: low to high';
+    attachDropdown(sortCombo, [
+      { label: 'Price: low to high', value: 'price-asc' },
+      { label: 'Price: high to low', value: 'price-desc' },
+    ], (opt) => {
+      sortLabel.textContent = opt.label;
+      activeFilters.sort = opt.value;
       applyFiltersAndRender();
     });
   }
 }
 
 // ---------------------------------------------------------------------------
-// 5. STADIUM MAP HIGHLIGHT
-//    Note: viagogo renders the venue map as a Mapbox GL *canvas* (WebGL),
-//    not as discrete SVG `<path>` sectors — individual sections are pixels,
-//    not DOM nodes, so they cannot literally be recoloured via CSS/JS.
-//    We reproduce the *behaviour* viagogo shows on hover/select — a
-//    highlighted marker over the map that tracks the active listing — using
-//    an overlay pin in viagogo's own highlight colour (#00865A), positioned
-//    by a deterministic hash of the section name so the same section always
-//    lights up the same spot.
+// 5. STADIUM MAP HIGHLIGHT — real section geometry, original colours.
+//    viagogo draws the venue map on a Mapbox GL canvas, but the *vector*
+//    source for every seating section lives in the hidden
+//    `#section-map-base > #map-def` SVG: one <g sprite-identifier="sNNN"> per
+//    section, each holding a white "idle" <path> and a coloured "active"
+//    <path> in viagogo's own price-tier colour.
+//    We clone that geometry into a visible, perfectly-transparent overlay
+//    sitting on the map (so the page looks 1:1 untouched at rest), then on
+//    hover/click of a listing we reveal the matching section's *original*
+//    coloured path — exactly the highlight viagogo shows live. Section IDs,
+//    classes and colours are taken verbatim from the source markup.
 // ---------------------------------------------------------------------------
-function ensureMapOverlay() {
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function buildMapOverlay() {
   const map = document.querySelector('[data-testid="map-container"]');
-  if (!map) return null;
-  let overlay = map.querySelector('.section-highlight-pin');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.className = 'section-highlight-pin';
-    overlay.style.cssText = 'position:absolute;width:18px;height:18px;border-radius:50%;background:#00865A;box-shadow:0 0 0 6px rgba(0,134,90,0.25);transform:translate(-50%,-50%) scale(0);transition:transform .15s ease, left .2s ease, top .2s ease;pointer-events:none;z-index:5;';
-    map.style.position = map.style.position || 'relative';
-    map.appendChild(overlay);
-  }
-  return overlay;
-}
+  const def = document.querySelector('#section-map-base #map-def');
+  if (!map || !def || document.getElementById('section-map-overlay')) return;
 
-function highlightSection(sectionName) {
-  const overlay = ensureMapOverlay();
-  if (!overlay) return;
-  const seed = hashSeed(String(sectionName));
-  overlay.style.left = (15 + (seed % 70)) + '%';
-  overlay.style.top = (20 + ((seed >> 4) % 60)) + '%';
-  overlay.style.transform = 'translate(-50%,-50%) scale(1)';
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.id = 'section-map-overlay';
+  svg.setAttribute('viewBox', def.getAttribute('viewBox') || '0 0 100 100');
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  svg.style.cssText =
+    'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4;';
+
+  const geometry = def.cloneNode(true);
+  geometry.removeAttribute('id');
+  // Fully transparent at rest -> the live map shows through untouched.
+  geometry.querySelectorAll('path').forEach(p => { p.style.display = 'none'; });
+  svg.appendChild(geometry);
+
+  map.style.position = map.style.position || 'relative';
+  map.appendChild(svg);
 }
 
 function clearHighlight() {
-  const overlay = document.querySelector('.section-highlight-pin');
-  if (overlay) overlay.style.transform = 'translate(-50%,-50%) scale(0)';
+  document
+    .querySelectorAll('#section-map-overlay g[sprite-identifier] path')
+    .forEach(p => { p.style.display = 'none'; });
+}
+
+function highlightSprite(sprite) {
+  buildMapOverlay();
+  clearHighlight();
+  if (!sprite) return;
+  const g = document.querySelector(
+    `#section-map-overlay g[sprite-identifier="s${sprite}"]`
+  );
+  if (!g) return;
+  const paths = Array.from(g.querySelectorAll('path'));
+  // The coloured (non-white) path is viagogo's own active fill for the tier.
+  const active = paths.find(p => (p.getAttribute('fill') || '').toLowerCase() !== '#ffffff') || paths[0];
+  if (!active) return;
+  active.style.display = 'block';
+  active.setAttribute('fill-opacity', '0.9');
 }
 
 function highlightWireUp() {
+  buildMapOverlay();
   document.querySelectorAll('#listings-container [data-listing-id]').forEach(card => {
-    const section = card.querySelector('h3')?.textContent?.replace('Section ', '').trim();
-    if (!section) return;
-    card.addEventListener('mouseenter', () => highlightSection(section));
+    const sprite = (card.getAttribute('data-feature-id') || '').split('_')[1];
+    if (!sprite) return;
+    card.addEventListener('mouseenter', () => highlightSprite(sprite));
     card.addEventListener('mouseleave', clearHighlight);
-    card.addEventListener('click', () => highlightSection(section));
+    card.addEventListener('click', () => highlightSprite(sprite));
   });
 }
 
