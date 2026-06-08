@@ -1,28 +1,198 @@
-// Mock ticket data - placeholder for future Ticketmaster API integration
-const mockTickets = [
-  { id: '90000001', feature: '1152_1191661', section: '101',  row: '5',  qty: 1, price: 219, venue: 'Paris La Defense Arena' },
-  { id: '90000002', feature: '1152_1191644', section: '102',  row: '8',  qty: 2, price: 235, venue: 'Paris La Defense Arena' },
-  { id: '90000003', feature: '1152_1191645', section: '110',  row: '12', qty: 1, price: 249, venue: 'Paris La Defense Arena' },
-  { id: '90000004', feature: '1288_1191663', section: '115',  row: '20', qty: 3, price: 268, venue: 'Paris La Defense Arena' },
-  { id: '90000005', feature: '1288_1191681', section: '117',  row: '31', qty: 2, price: 319, venue: 'Paris La Defense Arena' },
-  { id: '90000006', feature: '387_1711793',  section: '120',  row: '14', qty: 4, price: 329, venue: 'Paris La Defense Arena' },
-  { id: '90000007', feature: '17646_1711792',section: '128',  row: '6',  qty: 1, price: 345, venue: 'Paris La Defense Arena' },
-  { id: '90000008', feature: '1152_1191661', section: '134',  row: '22', qty: 2, price: 362, venue: 'Paris La Defense Arena' },
-  { id: '90000009', feature: '1152_1191644', section: 'Fosse',row: '—',  qty: 1, price: 389, venue: 'Paris La Defense Arena' },
-  { id: '90000010', feature: '1288_1191663', section: '142',  row: '3',  qty: 2, price: 405, venue: 'Paris La Defense Arena' },
-  { id: '90000011', feature: '1288_1191681', section: '150',  row: '17', qty: 3, price: 421, venue: 'Paris La Defense Arena' },
-  { id: '90000012', feature: '387_1711793',  section: '160',  row: '9',  qty: 1, price: 448, venue: 'Paris La Defense Arena' },
-  { id: '90000013', feature: '17646_1711792',section: '170',  row: '25', qty: 4, price: 472, venue: 'Paris La Defense Arena' },
+// ============================================================================
+// viagogo clone — universal dynamic engine (Stage 2)
+// Architecture note: this whole file is a placeholder data layer designed to
+// be swapped for real Ticketmaster API calls later. Every function that
+// currently reads from `mockEvents` / `generateMockEvent` / ticket builders
+// is the seam where a real fetch() to the Ticketmaster API would go.
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// 1. EVENT DATABASE (seeded from real data captured in the artist.html grid)
+//    + a deterministic generator so ANY event id opens without a 404.
+// ---------------------------------------------------------------------------
+const mockEvents = {
+  0: { id: 0, artist: 'Bad Bunny', venue: 'Paris La Defense Arena', city: 'Nanterre', country: 'France',  date: '2026-07-04T19:00:00+02:00', time: '7:00 PM', currency: '€', basePrice: 219 },
+  1: { id: 1, artist: 'Bad Bunny', venue: 'Paris La Defense Arena', city: 'Nanterre', country: 'France',  date: '2026-07-05T19:00:00+02:00', time: '7:00 PM', currency: '€', basePrice: 229 },
+  2: { id: 2, artist: 'Bad Bunny', venue: 'King Baudouin Stadium', city: 'Brussels', country: 'Belgium', date: '2026-07-22T19:00:00+02:00', time: 'TBA',     currency: '€', basePrice: 245 },
+  3: { id: 3, artist: 'Bad Bunny', venue: 'Riyadh Air Metropolitano (Metropolitano Stadium)', city: 'Madrid', country: 'Spain', date: '2026-06-10T20:00:00+02:00', time: '8:00 PM', currency: '€', basePrice: 259 },
+  4: { id: 4, artist: 'Bad Bunny', venue: 'Riyadh Air Metropolitano (Metropolitano Stadium)', city: 'Madrid', country: 'Spain', date: '2026-06-11T20:00:00+02:00', time: '8:00 PM', currency: '€', basePrice: 265 },
+  5: { id: 5, artist: 'Bad Bunny', venue: 'Riyadh Air Metropolitano (Metropolitano Stadium)', city: 'Madrid', country: 'Spain', date: '2026-06-14T20:00:00+02:00', time: '8:00 PM', currency: '€', basePrice: 271 },
+  6: { id: 6, artist: 'Bad Bunny', venue: 'Riyadh Air Metropolitano (Metropolitano Stadium)', city: 'Madrid', country: 'Spain', date: '2026-06-15T20:00:00+02:00', time: '8:00 PM', currency: '€', basePrice: 275 },
+  7: { id: 7, artist: 'Bad Bunny', venue: 'Merkur Spiel-Arena (formerly Esprit Arena)', city: 'Düsseldorf', country: 'Germany', date: '2026-06-20T20:00:00+02:00', time: '8:00 PM', currency: '€', basePrice: 209 },
+  8: { id: 8, artist: 'Bad Bunny', venue: 'Merkur Spiel-Arena (formerly Esprit Arena)', city: 'Düsseldorf', country: 'Germany', date: '2026-06-21T20:00:00+02:00', time: '8:00 PM', currency: '€', basePrice: 215 },
+};
+
+// World pool used by the generator so that literally any id (sport, theatre,
+// any city/country) resolves to *something* with viagogo's original look.
+const WORLD_POOL = [
+  { artist: 'New York Knicks',          venue: 'Madison Square Garden',     city: 'New York',  country: 'USA',     currency: '$' },
+  { artist: 'Real Madrid vs Barcelona', venue: 'Santiago Bernabéu',         city: 'Madrid',    country: 'Spain',   currency: '€' },
+  { artist: 'Hamilton',                 venue: 'Victoria Palace Theatre',   city: 'London',    country: 'UK',      currency: '£' },
+  { artist: 'Ariana Grande',            venue: 'The O2 Arena',              city: 'London',    country: 'UK',      currency: '£' },
+  { artist: 'Coldplay',                 venue: 'Allianz Arena',             city: 'Munich',    country: 'Germany', currency: '€' },
+  { artist: 'World Cup 2026',           venue: 'MetLife Stadium',           city: 'New York',  country: 'USA',     currency: '$' },
+  { artist: 'Galatasaray vs Fenerbahçe', venue: 'Rams Park',                city: 'Istanbul',  country: 'Turkey',  currency: '₺' },
 ];
 
-// Original ticket card markup captured from viagogo (sc-* / bway-* classes preserved verbatim) used as render template
-const ticketCardTemplate = `<div class="bway-gvZVNb bway-kusYUL bway-cGBrcK bway-gpwjwj bway-kpPeKJ bway-leShcA bway-cLMNWr bway-gfJAjJ bway-fZmLON bway-kBvkdf bway-legTQm bway-cQVBQd bway-jiDbme bway-hsJCnJ bway-bWtjN bway-itEkXY bway-guCGFe bway-oOHTN bway-icpfhV bway-eXxMeM bway-kXEFiT bway-blDfUu bway-igjvW bway-kRoxsJ bway-dmgOqy bway-bsRCCA bway-jGjamZ bway-QMPdj bway-geZXsj bway-cQPkCh bway-kyoelC bway-gwvawF bway-dFLXhC bway-gaZOIp bway-uiMoQ bway-iuLlzW bway-gmFoIy bway-hfvlsE" data-image-container="true"><div><div class="sc-hhIiOf dEsDZj"><div class="sc-194s59m-5 kdXXlE"><div tabindex="0" data-index="0" role="button" data-listing-id="__ID__" data-feature-id="__FEATURE__" data-is-sold="0" data-price="__PRICE__" class="sc-194s59m-4 jDsWwx"><div class="sc-194s59m-0 kLJLTS"><div class="sc-194s59m-18 kgpAVv" style="width: 210px; height: 140px;"><div data-vfs-image-container="true" class="sc-194s59m-8 lbpcis" style="width: 210px; height: 140px;"><img alt="__VENUE__ - Section __SECTION__" src="https://img.vggcdn.net/img/vfsimage2/669219/1152_1191661/0.jpg?im=Resize=(800,434)&amp;v=10" srcset="https://img.vggcdn.net/img/vfsimage2/669219/1152_1191661/0.jpg?im=Resize=(800,434)&amp;v=10 800w, https://img.vggcdn.net/img/vfsimage2/669219/1152_1191661/0.jpg?im=Resize=(1200,650)&amp;v=10 1200w" sizes="(max-width: 767px) 200px, 600px" loading="lazy" data-vfs-image="true" class="sc-194s59m-11 jcnlDi" style="width: 210px; height: 140px;"></div></div><div class="sc-194s59m-6 fSsrqk"><div span="12" class="sc-eirqVw kFSFrr bway-fPSCSl bway-epgfaW bway-ePpAjW" style="display: flex; flex-direction: column; row-gap: 5px; min-width: 0px;"><div wrap="false" class="sc-hhIiOf bsklLv"><div class="sc-eirqVw jEWjgH bway-hyZZHG bway-kgqDwq bway-drBAFA bway-dyCxVY bway-fPSCSl bway-epgfaW bway-ePpAjW" style="display: flex; flex-direction: column; row-gap: 5px; min-width: 0px; flex-grow: 1;"><div class="bway-hGHyUK bway-bvLYXP bway-iJhbLW bway-bkAxuH" data-listing-cta-id="listing-__ID__"><h3 class="bway-hEYtOD bway-cIUAdB bway-cDMLQI bway-jXjluZ" data-custom-color="false">Section __SECTION__</h3><span class="bway-fPSCSl bway-bYPHwJ bway-efCTVw bway-iJhbLW bway-hGHyUK bway-cZVKn" style="color: rgb(9, 18, 24);"><span class="bway-nVSHX"><span>Row __ROW__</span><span class="bway-efCTVw bway-iJhbLW bway-hGHyUK" style="color: rgb(9, 18, 24);"></span></span></span></div><div class="bway-frzikA"><div class="bway-fPSCSl bway-efCTVw bway-iJhbLW bway-hlpUsC" style="color: rgb(0, 0, 0);"><div class="bway-fPSCSl bway-hAdeLJ bway-hVFjTQ"><div color="#006E2B" class="sc-diddhf-0 dNezjE"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" role="img" width="16px" height="16px" fill="currentColor" class="sc-hKFxyK lcCPsN"><path fill="currentColor" fill-rule="evenodd" d="M2 4.5a2 2 0 0 1 2-2h1.5a2 2 0 0 1 2 2v2.25c0 .138.112.25.25.25h.5a.25.25 0 0 0 .25-.25V4.5a2 2 0 0 1 2-2H12a2 2 0 0 1 2 2V7a1 1 0 0 1 1 1v1.982a1 1 0 0 1-1 1h-.5v1.768a.75.75 0 0 1-1.5 0V11h-1.5v1.75a.75.75 0 0 1-1.5 0V11H7v1.75a.75.75 0 0 1-1.5 0V11H4v1.75a.75.75 0 0 1-1.5 0v-1.768H2a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zm7 4.75c0 .138.112.25.25.25h4a.25.25 0 0 0 .25-.25v-.5a.25.25 0 0 0-.25-.25h-4a.25.25 0 0 0-.25.25zM6.75 8.5a.25.25 0 0 1 .25.25v.5a.25.25 0 0 1-.25.25h-4a.25.25 0 0 1-.25-.25v-.5a.25.25 0 0 1 .25-.25z" clip-rule="evenodd"></path></svg></div></div>__QTY__ ticket__PLURAL__ together</div><div class="bway-efCTVw bway-iJhbLW bway-kyQsLF bway-iFMkzT"><div class="bway-fPSCSl bway-gEYWTw bway-kIHFBM"><span class="sc-1sen04d-0 kIGDz"><svg aria-labelledby="title desc" fill="none" height="16px" viewBox="0 0 16 16" width="16px" xmlns="http://www.w3.org/2000/svg" class="" role="graphics-symbol"><path d="M7.999 5.426c.364 0 .656.3.646.664L8.56 9.162a.562.562 0 0 1-1.123 0l-.085-3.071a.646.646 0 0 1 .646-.665M8 11.62a.7.7 0 0 1-.508-.21.68.68 0 0 1-.209-.507.67.67 0 0 1 .21-.502.7.7 0 0 1 .507-.209q.284 0 .499.21a.685.685 0 0 1 .113.862.8.8 0 0 1-.26.26.7.7 0 0 1-.352.096" fill="currentColor"></path><path clip-rule="evenodd" d="M6.207 3.105c.736-1.474 2.838-1.475 3.575-.002l4.004 8.002c.665 1.33-.3 2.895-1.787 2.895H4c-1.485 0-2.452-1.564-1.788-2.894zm2.235.67 4.004 8.001a.5.5 0 0 1-.447.724H4a.5.5 0 0 1-.447-.723l3.994-8.002a.5.5 0 0 1 .894 0" fill="currentColor" fill-rule="evenodd"></path></svg></span><span class="sc-wnalz8-0 lnHLYQ"><span class="sc-wnalz8-2 ivqjTF">Limited view</span></span></div><div class="bway-fPSCSl bway-gEYWTw bway-kIHFBM"><span class="sc-1sen04d-0 kIGDz"><div class="bway-fPSCSl bway-fwRAFB" style="--icon-fill: var(--bway-colors-text);"><svg aria-labelledby="title desc" fill="none" height="16px" viewBox="0 0 16 16" width="16px" xmlns="http://www.w3.org/2000/svg" class="" role="graphics-symbol"><path d="M7.999 5.426c.364 0 .656.3.646.664L8.56 9.162a.562.562 0 0 1-1.123 0l-.085-3.071a.646.646 0 0 1 .646-.665M8 11.62a.7.7 0 0 1-.508-.21.68.68 0 0 1-.209-.507.67.67 0 0 1 .21-.502.7.7 0 0 1 .507-.209q.284 0 .499.21a.685.685 0 0 1 .113.862.8.8 0 0 1-.26.26.7.7 0 0 1-.352.096" fill="currentColor"></path><path clip-rule="evenodd" d="M6.207 3.105c.736-1.474 2.838-1.475 3.575-.002l4.004 8.002c.665 1.33-.3 2.895-1.787 2.895H4c-1.485 0-2.452-1.564-1.788-2.894zm2.235.67 4.004 8.001a.5.5 0 0 1-.447.724H4a.5.5 0 0 1-.447-.723l3.994-8.002a.5.5 0 0 1 .894 0" fill="currentColor" fill-rule="evenodd"></path></svg></div></span><span class="sc-wnalz8-0 lnHLYQ"><span class="sc-wnalz8-2 ivqjTF">No Under 14s</span></span></div><div class="bway-fPSCSl bway-gEYWTw bway-kIHFBM"><span class="sc-1sen04d-0 kIGDz"><div class="bway-fPSCSl bway-fwRAFB" style="--icon-fill: var(--bway-colors-text);"><svg aria-labelledby="title desc" fill="none" height="16px" viewBox="0 0 16 16" width="16px" xmlns="http://www.w3.org/2000/svg" class="" role="graphics-symbol"><path d="M7.999 5.426c.364 0 .656.3.646.664L8.56 9.162a.562.562 0 0 1-1.123 0l-.085-3.071a.646.646 0 0 1 .646-.665M8 11.62a.7.7 0 0 1-.508-.21.68.68 0 0 1-.209-.507.67.67 0 0 1 .21-.502.7.7 0 0 1 .507-.209q.284 0 .499.21a.685.685 0 0 1 .113.862.8.8 0 0 1-.26.26.7.7 0 0 1-.352.096" fill="currentColor"></path><path clip-rule="evenodd" d="M6.207 3.105c.736-1.474 2.838-1.475 3.575-.002l4.004 8.002c.665 1.33-.3 2.895-1.787 2.895H4c-1.485 0-2.452-1.564-1.788-2.894zm2.235.67 4.004 8.001a.5.5 0 0 1-.447.724H4a.5.5 0 0 1-.447-.723l3.994-8.002a.5.5 0 0 1 .894 0" fill="currentColor" fill-rule="evenodd"></path></svg></div></span><span class="sc-wnalz8-0 lnHLYQ"><span class="sc-wnalz8-2 ivqjTF">Under 16s accompanied by an adult</span></span></div></div></div><div class="sc-1z0sbfv-21 iHkIEC"><div class="bway-frzikA bway-bYPHnT"><div class="bway-fPSCSl bway-krXxSs bway-dMMvtG bway-dyCxVY bway-ePpAkn bway-ePpAjW"><div class="bway-bXcgPv bway-dvfalt bway-wkNBk bway-eYNprA" data-kind="success" data-size="small" data-variant="borderless" role="term"><svg aria-labelledby="title desc" fill="none" height="16" viewBox="0 0 16 16" width="16px" xmlns="http://www.w3.org/2000/svg" class="bway-iTMVza bway-dwbaPU bway-bqhWNp bway-nKgIR" role="graphics-symbol" data-position="start"><path clip-rule="evenodd" d="M6 1c-1.105 0-2 .9-2 2.009v5.02h-.5c-.868 0-1.324 1.036-.738 1.68l4.506 4.963a.997.997 0 0 0 1.48 0l4.49-4.964c.584-.645.128-1.68-.74-1.68H12v-5.02C12 1.9 11.105 1 10 1zm3.51 5.32c-.249 0-.452-.176-.649-.345q-.084-.076-.169-.141-.222-.177-.633-.177-.273 0-.455.071a.6.6 0 0 0-.273.196.47.47 0 0 0-.094.282.4.4 0 0 0 .052.23q.06.1.17.176.114.075.273.13.159.058.358.1l.5.114q.431.093.761.25.332.156.557.372.227.216.344.497t.119.63a1.63 1.63 0 0 1-.278.947 1.73 1.73 0 0 1-.793.605q-.25.102-.548.154v.335a.75.75 0 0 1-1.5 0v-.357a3 3 0 0 1-.466-.14 1.8 1.8 0 0 1-.844-.665 1.7 1.7 0 0 1-.209-.44c-.114-.367.213-.688.597-.688h.15c.28 0 .487.24.65.468q.133.188.366.285.236.096.545.096.284 0 .483-.077a.7.7 0 0 0 .31-.213.5.5 0 0 0 .11-.312.43.43 0 0 0-.101-.281.8.8 0 0 0-.307-.205 3 3 0 0 0-.523-.162l-.608-.142q-.756-.173-1.19-.56-.435-.39-.432-1.05-.003-.54.29-.947t.81-.633q.175-.078.369-.129v-.352a.75.75 0 0 1 1.5 0v.323q.26.058.483.16.5.228.775.64.086.127.144.265c.153.358-.18.69-.57.69z" fill="currentColor" fill-rule="evenodd"></path></svg><span class="bway-iHAZVT bway-hEXFEN bway-iOhyns bway-bSlaFY">Best price</span></div><div class="sc-fxFQKK fFgeNA"><span><span class="sc-wnalz8-0 dTKUHB"><span class="sc-wnalz8-2 ivqjTF"><span class="sc-wnalz8-3 gbtTir">Fan favorite</span></span></span></span></div></div></div></div></div><div class="sc-eirqVw ijJYZL bway-cYhkTo bway-cOJYAW"><div class="bway-fPSCSl bway-felPWK bway-hGHyUK">__PRICE__</div><div class="bway-efCTVw bway-iJhbLW bway-kyQsLF bway-iFMkzT bway-fPSCSl bway-epgfaW bway-ePpAjW" style="text-align: right;"><div class="bway-fPSCSl bway-epgfaW bway-felPTb"><div class="sc-1bwbij1-0 jSokDP"><div color="#000000" class="sc-1bwbij1-1 ioctgf"><span class="sc-wnalz8-0 fxDrMc"><span class="sc-wnalz8-2 XkQis"><span class="sc-wnalz8-3 fEifAI">No extra fees</span></span></span></div></div></div><div class="bway-fPSCSl bway-felPWK"><div class="sc-gtsrHU cJzxJv"><div color="#00865A" class="sc-j0edf5-0 fHienD"><div color="#00865A" class="sc-j0edf5-2 etWavQ">8.9</div><div class="sc-eirqVw sc-j0edf5-1 jEWjgH gQXUkX">Amazing</div></div></div></div></div></div></div></div></div></div></div></div></div></div></div>`;
+function hashSeed(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) { h = (h * 31 + str.charCodeAt(i)) >>> 0; }
+  return h;
+}
+
+// Deterministic pseudo-random generator (so the same id always renders the
+// same "data" — exactly how a real cached API response would behave)
+function seededRandom(seed) {
+  let s = seed;
+  return function () {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    return s / 0x7fffffff;
+  };
+}
+
+function generateMockEvent(rawId) {
+  const seed = hashSeed(String(rawId));
+  const rand = seededRandom(seed);
+  const pick = WORLD_POOL[seed % WORLD_POOL.length];
+  const day = (seed % 27) + 1;
+  const hour = 18 + (seed % 4);
+  return {
+    id: rawId,
+    artist: pick.artist,
+    venue: pick.venue,
+    city: pick.city,
+    country: pick.country,
+    date: `2026-${String((seed % 12) + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}T${hour}:00:00+00:00`,
+    time: `${hour > 12 ? hour - 12 : hour}:00 ${hour >= 12 ? 'PM' : 'AM'}`,
+    currency: pick.currency,
+    basePrice: 80 + Math.floor(rand() * 400),
+    _generated: true,
+  };
+}
+
+function resolveEvent(rawId) {
+  if (rawId == null) return mockEvents[0];
+  if (mockEvents[rawId] != null) return mockEvents[rawId];
+  return generateMockEvent(rawId);
+}
+
+function getQueryParam(name) {
+  return new URLSearchParams(window.location.search).get(name);
+}
+
+// ---------------------------------------------------------------------------
+// 2. UNIVERSAL ROUTER — intercept clicks on event cards anywhere on the site
+//    and route them through our own templates with ?event_id=
+// ---------------------------------------------------------------------------
+function wireUniversalRouter() {
+  document.querySelectorAll('a[class*="eventGridListItem__container"]').forEach((a, idx) => {
+    if (a.dataset.routed) return;
+    a.dataset.routed = '1';
+    const id = a.dataset.eventId != null ? a.dataset.eventId : idx;
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.location.href = `fticket.html?event_id=${encodeURIComponent(id)}`;
+    });
+  });
+
+  // Ticket "buy" CTA -> checkout (delegated, since the list re-renders)
+  document.body.addEventListener('click', (e) => {
+    const card = e.target.closest('[data-listing-id]');
+    if (!card) return;
+    const cta = e.target.closest('button, a');
+    if (!cta) return;
+    e.preventDefault();
+    const id = card.getAttribute('data-listing-id');
+    const price = card.getAttribute('data-price') || '';
+    const section = card.querySelector('h3')?.textContent?.trim() || '';
+    const params = new URLSearchParams({ listing_id: id, price, section, event_id: getQueryParam('event_id') || '0' });
+    window.location.href = `checkout.html?${params.toString()}`;
+  });
+}
+
+// Tag each grid card with a stable index-based event id for the router above
+function tagEventCards() {
+  document.querySelectorAll('a[class*="eventGridListItem__container"]').forEach((a, idx) => {
+    a.dataset.eventId = String(idx);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 3. EVENT DETAIL PAGE (fticket.html) — repaint header + generate ticket grid
+//    for whatever event id is in the URL.
+// ---------------------------------------------------------------------------
+const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function formatEventDate(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return `${WEEKDAYS[d.getUTCDay()]} · ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
+function paintEventHeader(ev) {
+  const header = document.getElementById('event-detail-header');
+  if (!header) return;
+  const h1 = header.querySelector('h1');
+  if (h1) h1.textContent = ev.artist;
+  const dateSpan = Array.from(header.querySelectorAll('span')).find(s => /·/.test(s.textContent));
+  if (dateSpan) dateSpan.textContent = `${formatEventDate(ev.date)} · ${ev.time}`;
+  const venueBtn = Array.from(header.querySelectorAll('button')).find(b => /Arena|Stadium|Theatre|Garden|Park|Bernabéu/i.test(b.textContent));
+  if (venueBtn) venueBtn.textContent = `${ev.venue}, ${ev.city}, ${ev.country}`;
+  document.title = `${ev.artist} Tickets - ${ev.venue} - viagogo`;
+}
+
+const SECTIONS = ['101','102','110','115','117','120','128','134','142','150','160','170','Fosse','Floor A','Floor B'];
+const ROWS = ['1','3','5','6','8','9','12','14','17','20','22','25','31','—'];
+
+function buildTicketsForEvent(ev) {
+  const seed = hashSeed(`${ev.id}-${ev.artist}-${ev.venue}`);
+  const rand = seededRandom(seed);
+  const count = 12 + Math.floor(rand() * 25); // gives the "endless list" feel, scales per event
+  const tickets = [];
+  for (let i = 0; i < count; i++) {
+    const section = SECTIONS[Math.floor(rand() * SECTIONS.length)];
+    tickets.push({
+      id: String(seed + i * 97),
+      feature: `${(seed % 9000) + i}_${(seed % 1700000) + i}`,
+      section,
+      row: (section.startsWith('Floor') || section === 'Fosse') ? '—' : ROWS[Math.floor(rand() * ROWS.length)],
+      qty: 1 + Math.floor(rand() * 4),
+      price: Math.round(ev.basePrice * (0.7 + rand() * 1.6)),
+      venue: ev.venue,
+      currency: ev.currency,
+    });
+  }
+  return tickets;
+}
+
+let ticketCardTemplate = null;
+let currentTickets = [];
+let activeFilters = { qty: 'any', sort: 'price-asc' };
+
+function captureTicketTemplate() {
+  const list = document.getElementById('listings-container');
+  if (!list) return null;
+  const wrapper = list.querySelector('[data-image-container="true"]');
+  if (!wrapper) return null;
+  let tpl = wrapper.outerHTML;
+  tpl = tpl.replace(/data-listing-id="\d+"/, 'data-listing-id="__ID__"')
+           .replace(/data-feature-id="[^"]*"/, 'data-feature-id="__FEATURE__"')
+           .replace(/data-price="[^"]*"/, 'data-price="__PRICE__"')
+           .replace(/alt="[^"]*- Section [^"]*"/, 'alt="__VENUE__ - Section __SECTION__"')
+           .replace(/>Section [^<]*<\/h3>/, '>Section __SECTION__</h3>')
+           .replace(/<span>Row [^<]*<\/span>/, '<span>Row __ROW__</span>')
+           .replace(/data-listing-cta-id="listing-\d+"/, 'data-listing-cta-id="listing-__ID__"')
+           .replace(/>\d+ tickets? together</, '>__QTY__ ticket__PLURAL__ together<')
+           .replace(/>€\d[\d.,]*<(?=\/div><div class="bway-efCTVw bway-iJhbLW bway-kyQsLF)/, '>__PRICE__<');
+  return tpl;
+}
 
 function renderTicket(t) {
   return ticketCardTemplate
     .replaceAll('__ID__', t.id)
     .replaceAll('__FEATURE__', t.feature)
-    .replaceAll('__PRICE__', '\u20AC' + t.price)
+    .replaceAll('__PRICE__', t.currency + t.price)
     .replaceAll('__VENUE__', t.venue)
     .replaceAll('__SECTION__', t.section)
     .replaceAll('__ROW__', t.row)
@@ -30,11 +200,168 @@ function renderTicket(t) {
     .replaceAll('__PLURAL__', t.qty === 1 ? '' : 's');
 }
 
-function mountTicketList() {
+function applyFiltersAndRender() {
   const list = document.getElementById('listings-container');
-  if (!list) return;
-  const sorted = [...mockTickets].sort((a, b) => a.price - b.price);
-  list.innerHTML = sorted.map(renderTicket).join('');
+  if (!list || !ticketCardTemplate) return;
+  let filtered = currentTickets;
+  if (activeFilters.qty !== 'any') {
+    filtered = filtered.filter(t => t.qty === Number(activeFilters.qty));
+  }
+  filtered = [...filtered].sort((a, b) => activeFilters.sort === 'price-asc' ? a.price - b.price : b.price - a.price);
+  list.innerHTML = filtered.map(renderTicket).join('');
+  highlightWireUp();
+  updateListingsCountLabel(filtered.length);
 }
 
-document.addEventListener('DOMContentLoaded', mountTicketList);
+function updateListingsCountLabel(n) {
+  const h2 = Array.from(document.querySelectorAll('h2')).find(h => /listings/.test(h.textContent));
+  if (h2) h2.textContent = `${n} listings`;
+}
+
+// ---------------------------------------------------------------------------
+// 4. INTERACTIVE FILTERS — quantity selector + sort/filter button.
+//    Original markup is reused (data-testid="event-detail-quantity-filter",
+//    data-testid="event-detail-filters-button"); we just give it behaviour.
+// ---------------------------------------------------------------------------
+function wireFilters() {
+  const qtyBox = document.querySelector('[data-testid="event-detail-quantity-filter"] .sc-bCwfaA');
+  if (qtyBox) {
+    const options = ['Any', '1 ticket', '2 tickets', '3 tickets', '4 tickets'];
+    let i = 0;
+    const hitArea = qtyBox.closest('[role="combobox"]');
+    hitArea.style.cursor = 'pointer';
+    hitArea.addEventListener('click', () => {
+      i = (i + 1) % options.length;
+      qtyBox.textContent = options[i];
+      activeFilters.qty = i === 0 ? 'any' : String(i);
+      applyFiltersAndRender();
+    });
+  }
+  const filterBtn = document.querySelector('[data-testid="event-detail-filters-button"] [role="combobox"]');
+  if (filterBtn) {
+    const label = filterBtn.querySelector('.sc-bCwfaA') || filterBtn;
+    const options = [['Price: low to high', 'price-asc'], ['Price: high to low', 'price-desc']];
+    let i = 0;
+    label.textContent = options[0][0];
+    filterBtn.style.cursor = 'pointer';
+    filterBtn.addEventListener('click', () => {
+      i = (i + 1) % options.length;
+      label.textContent = options[i][0];
+      activeFilters.sort = options[i][1];
+      applyFiltersAndRender();
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5. STADIUM MAP HIGHLIGHT
+//    Note: viagogo renders the venue map as a Mapbox GL *canvas* (WebGL),
+//    not as discrete SVG `<path>` sectors — individual sections are pixels,
+//    not DOM nodes, so they cannot literally be recoloured via CSS/JS.
+//    We reproduce the *behaviour* viagogo shows on hover/select — a
+//    highlighted marker over the map that tracks the active listing — using
+//    an overlay pin in viagogo's own highlight colour (#00865A), positioned
+//    by a deterministic hash of the section name so the same section always
+//    lights up the same spot.
+// ---------------------------------------------------------------------------
+function ensureMapOverlay() {
+  const map = document.querySelector('[data-testid="map-container"]');
+  if (!map) return null;
+  let overlay = map.querySelector('.section-highlight-pin');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'section-highlight-pin';
+    overlay.style.cssText = 'position:absolute;width:18px;height:18px;border-radius:50%;background:#00865A;box-shadow:0 0 0 6px rgba(0,134,90,0.25);transform:translate(-50%,-50%) scale(0);transition:transform .15s ease, left .2s ease, top .2s ease;pointer-events:none;z-index:5;';
+    map.style.position = map.style.position || 'relative';
+    map.appendChild(overlay);
+  }
+  return overlay;
+}
+
+function highlightSection(sectionName) {
+  const overlay = ensureMapOverlay();
+  if (!overlay) return;
+  const seed = hashSeed(String(sectionName));
+  overlay.style.left = (15 + (seed % 70)) + '%';
+  overlay.style.top = (20 + ((seed >> 4) % 60)) + '%';
+  overlay.style.transform = 'translate(-50%,-50%) scale(1)';
+}
+
+function clearHighlight() {
+  const overlay = document.querySelector('.section-highlight-pin');
+  if (overlay) overlay.style.transform = 'translate(-50%,-50%) scale(0)';
+}
+
+function highlightWireUp() {
+  document.querySelectorAll('#listings-container [data-listing-id]').forEach(card => {
+    const section = card.querySelector('h3')?.textContent?.replace('Section ', '').trim();
+    if (!section) return;
+    card.addEventListener('mouseenter', () => highlightSection(section));
+    card.addEventListener('mouseleave', clearHighlight);
+    card.addEventListener('click', () => highlightSection(section));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 6. PAGE BOOTSTRAP
+// ---------------------------------------------------------------------------
+function initEventDetailPage() {
+  const list = document.getElementById('listings-container');
+  if (!list) return;
+  const ev = resolveEvent(getQueryParam('event_id'));
+  paintEventHeader(ev);
+  ticketCardTemplate = captureTicketTemplate();
+  if (!ticketCardTemplate) return;
+  currentTickets = buildTicketsForEvent(ev);
+  applyFiltersAndRender();
+  wireFilters();
+}
+
+// ---------------------------------------------------------------------------
+// 7. HOMEPAGE — "Popular events" grid (replaces the empty skeleton mount)
+//    Renders 8-12 top world events using the original eventGridListItem
+//    card markup/classes so they flow through the same universal router.
+// ---------------------------------------------------------------------------
+function renderPopularEventsGrid() {
+  const mount = document.getElementById('popular-events-grid');
+  if (!mount) return;
+
+  const ids = [0, 1, 2, 3, 4, 5, 6, 7, 'london-1', 'tokyo-1'];
+  mount.innerHTML = ids.map((id) => {
+    const ev = resolveEvent(id);
+    const d = new Date(ev.date);
+    const month = isNaN(d) ? '' : d.toLocaleString('en-US', { month: 'short' });
+    const day = isNaN(d) ? '' : d.getDate();
+    const weekday = isNaN(d) ? '' : WEEKDAYS[d.getDay()];
+    return `
+      <a class="bway-jTBMCa bway-kjFaWU bway-kjEPjR bway-fPSCSl bway-fUkDun bway-dYRhWt eventGridListItem__container"
+         tabindex="0" title="${ev.artist}" href="fticket.html?event_id=${encodeURIComponent(id)}"
+         style="display:flex;gap:12px;align-items:center;width:calc(33.333% - 16px);min-width:260px;background:#fff;border-radius:12px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.08);text-decoration:none;color:inherit;">
+        <time class="eventGridListItemCalendar__container" style="text-align:center;min-width:48px;">
+          <h6 class="eventGridListItemCalendar__contentSecondary" style="margin:0;font-size:12px;color:#5C6570;">${month}</h6>
+          <h6 class="eventGridListItemCalendar__contentPrimary" style="margin:0;font-size:20px;font-weight:700;">${day}</h6>
+          <p class="eventGridListItemCalendar__chinContent" style="margin:0;font-size:11px;color:#5C6570;">${weekday}</p>
+        </time>
+        <div class="eventGridListItemBody__container">
+          <h3 data-testid="event-grid-item-title-text" class="eventGridListItemTitle__title" style="margin:0;font-size:15px;font-weight:700;"><bdi>${ev.artist}</bdi></h3>
+          <div class="eventGridListItemSubtitle__subtitle" style="font-size:13px;color:#5C6570;"><bdi>${ev.venue}, ${ev.city}</bdi></div>
+        </div>
+      </a>`;
+  }).join('');
+
+  mount.querySelectorAll('a[class*="eventGridListItem__container"]').forEach((a) => {
+    if (a.dataset.routed) return;
+    a.dataset.routed = '1';
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.location.href = a.getAttribute('href');
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  tagEventCards();
+  wireUniversalRouter();
+  renderPopularEventsGrid();
+  initEventDetailPage();
+});
