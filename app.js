@@ -463,7 +463,10 @@ function highlightWireUp() {
 function initEventDetailPage() {
   const list = document.getElementById('listings-container');
   if (!list) return;
-  const ev = resolveEvent(getQueryParam('event_id'));
+  // Prefer a live Ticketmaster event handed over via URL params; otherwise
+  // fall back to the deterministic local engine (never 404s).
+  const live = (typeof liveEventFromUrl === 'function') ? liveEventFromUrl() : null;
+  const ev = live || resolveEvent(getQueryParam('event_id'));
   paintEventHeader(ev);
   ticketCardTemplate = captureTicketTemplate();
   if (!ticketCardTemplate) return;
