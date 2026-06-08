@@ -161,21 +161,31 @@ function fillGridCard(card, ev) {
     flag.setAttribute('alt', `Flag of ${ev.countryCode.toUpperCase()}`);
   }
 
-  // Location (sibling of flag) + venue (second content part) in the title row.
-  const titleParts = card.querySelectorAll('.eventGridListItemTitle__title .eventGridListItemContent__contentPart');
-  const locBdi = titleParts[0]?.querySelector('bdi');
-  if (locBdi) locBdi.textContent = [ev.city, ev.country].filter(Boolean).join(', ') || ev.country || '—';
-  const venueBdi = titleParts[1]?.querySelector('bdi');
-  if (venueBdi) venueBdi.textContent = ev.venue;
+  // TITLE row holds the performer/event NAME (one content part).
+  const titleBdi = card.querySelector('.eventGridListItemTitle__title bdi');
+  if (titleBdi) titleBdi.textContent = ev.title;
 
-  // Subtitle row: "From €309" / time / artist name.
-  const subParts = card.querySelectorAll('.eventGridListItemSubtitle__subtitle .eventGridListItemContent__contentPart');
-  const priceBdi = subParts[0]?.querySelector('bdi');
-  if (priceBdi) priceBdi.textContent = ev.price != null ? `From ${currencySymbol(ev.currency)}${ev.price}` : 'See prices';
-  const timeBdi = subParts[1]?.querySelector('bdi');
-  if (timeBdi) timeBdi.textContent = formatClock(ev.time);
-  const nameBdi = subParts[2]?.querySelector('bdi');
-  if (nameBdi) nameBdi.textContent = ev.attractionName || ev.title;
+  // SUBTITLE row layout (viagogo artist grid): parts are
+  //   [time]  [flag + "City, Country"]  [venue]
+  // and a second subtitle row repeats the venue for mobile. We fill by ROLE,
+  // not index: the part with the flag is the location; the first flag-less part
+  // is the time; everything else is the venue.
+  const locText = [ev.city, ev.country].filter(Boolean).join(', ') || ev.country || '';
+  const parts = Array.from(card.querySelectorAll(
+    '.eventGridListItemSubtitle__subtitle .eventGridListItemContent__contentPart'));
+  let timeDone = false;
+  parts.forEach(part => {
+    const bdi = part.querySelector('bdi');
+    if (!bdi) return;
+    if (part.querySelector('img')) {
+      bdi.textContent = locText;            // location part (carries the flag)
+    } else if (!timeDone) {
+      bdi.textContent = formatClock(ev.time) || ev.time || 'See tickets';
+      timeDone = true;                      // first flag-less part = time
+    } else {
+      bdi.textContent = ev.venue || '';     // remaining parts = venue
+    }
+  });
 
   return card;
 }
@@ -601,6 +611,9 @@ async function initLiveCarousels() {
 const TM_CITIES = ['Paris', 'London', 'Cologne', 'Berlin', 'Madrid', 'Amsterdam', 'New York'];
 
 function wireLocationFilter() {
+  // On the artist page (event grid present) initLiveGrid already wires all
+  // three filter pills, so skip here to avoid a duplicate dropdown menu.
+  if (document.querySelector('a[class*="eventGridListItem__container"]')) return;
   const combobox = document.querySelector('[role="combobox"][aria-label="Filter by location"]');
   const label = combobox?.querySelector('.sc-bCwfaA');
   if (!combobox || !label || typeof attachDropdown !== 'function') return;
