@@ -88,6 +88,11 @@ function wireUniversalRouter() {
   document.querySelectorAll('a[class*="eventGridListItem__container"]').forEach((a, idx) => {
     if (a.dataset.routed) return;
     a.dataset.routed = '1';
+    // Cards filled with live Ticketmaster data already carry a real
+    // fticket.html?title=...&id=... href (set by ticketmaster.js) — let
+    // those navigate as-is so each card opens its OWN event, not a mock one.
+    const href = a.getAttribute('href') || '';
+    if (/[?&]title=/.test(href)) return;
     const id = a.dataset.eventId != null ? a.dataset.eventId : idx;
     a.addEventListener('click', (e) => {
       e.preventDefault();
