@@ -8,6 +8,26 @@
 // the design stays pixel-perfect; only text/attributes are substituted.
 // ============================================================================
 
+// ---------- 0. ANTI-FLASH STYLE ----------
+// Hide the static (Bad Bunny) carousels/grids the instant this script parses —
+// i.e. before the browser finishes painting the rest of the body — so users
+// never see a flash of mock content before the live data lands. init*()
+// functions clear `data-tm-loading` once they've repainted a section.
+(function injectAntiFlashStyle() {
+  const style = document.createElement('style');
+  style.textContent = `
+    [data-carousel-index], ul[data-testid="primaryGrid"], ul[data-testid="restGrid"] {
+      visibility: hidden;
+    }
+    [data-tm-loaded] [data-carousel-index],
+    [data-tm-loaded] ul[data-testid="primaryGrid"],
+    [data-tm-loaded] ul[data-testid="restGrid"] {
+      visibility: visible;
+    }
+  `;
+  document.head.appendChild(style);
+})();
+
 // ---------- 1. DATA LAYER ----------
 const TM_API_KEY = 'GF5xmT4oNCokX74vmAdx6Dw0hyKVKipA'; // public consumer key
 const TM_BASE = 'https://app.ticketmaster.com/discovery/v2';
@@ -194,6 +214,24 @@ function paintArtistHeader(name, image) {
 // Replace the static demo grid on artist.html with a live grid. If the page was
 // opened for a specific artist (?attractionId=), we load THAT artist's full
 // list of tour dates; otherwise we fall back to a category feed.
+// Sort/filter state for the artist-page "all locations" grid, driven by the
+// Date / Price dropdowns. Re-applied on every repaint (filter change, page nav).
+let GRID_SORT = { date: 'all', price: 'none' };
+
+function applyGridSort(events) {
+  let out = events.slice();
+  if (GRID_SORT.date === 'soon') {
+    out = out.filter(e => {
+      const d = new Date(e.date);
+      const days = (d - Date.now()) / 86400000;
+      return days >= 0 && days <= 7;
+    });
+  }
+  if (GRID_SORT.price === 'asc') out.sort((a, b) => (a.price || 0) - (b.price || 0));
+  else if (GRID_SORT.price === 'desc') out.sort((a, b) => (b.price || 0) - (a.price || 0));
+  return out;
+}
+
 async function initLiveGrid() {
   const firstCard = document.querySelector('a[class*="eventGridListItem__container"]');
   if (!firstCard) return; // not a grid page
@@ -210,92 +248,199 @@ async function initLiveGrid() {
   const artistName = q.get('name');
   paintArtistHeader(artistName, q.get('img'));
 
-  let events;
-  try {
-    const raw = attractionId
-      ? await fetchEventsByAttraction(attractionId)
-      : await fetchEvents({ segmentName: TM_SEGMENTS[q.get('cat')] || 'Music', size: 12 });
-    events = raw.map(mapEventToCard).filter(e => e.title);
-  } catch (err) {
-    console.error('[ticketmaster] grid load failed:', err);
-    return; // leave original markup untouched on failure
-  }
-  if (!events.length) return;
+  // Hide the original (Bad Bunny) rows immediately so there's no flash of
+  // stale content while we fetch — the "couple seconds of Bad Bunny" bug.
+  const gridSection = ul.closest('[class*="sc-oo2xkq-1"]') || ul.parentElement;
+  if (gridSection) gridSection.style.visibility = 'hidden';
 
-  // All existing <li>s that actually hold a card (the heading <li> is kept).
+  const restUl = document.querySelector('ul[data-testid="restGrid"]');
+  const restCardLiTpl = restUl
+    ? Array.from(restUl.children).find(li => li.querySelector('a[class*="eventGridListItem__container"]'))
+    : null;
+  const restPageSize = restUl
+    ? Array.from(restUl.children).filter(li => li.querySelector('a[class*="eventGridListItem__container"]')).length
+    : 0;
+  const restSection = restUl ? (restUl.closest('[class*="sc-oo2xkq-1"]') || restUl.parentElement) : null;
+
+  let allEvents = [];
+  async function load(city = '') {
+    try {
+      const raw = attractionId
+        ? await fetchEventsByAttraction(attractionId)
+        : await fetchEvents({ segmentName: TM_SEGMENTS[q.get('cat')] || 'Music', size: 40, city });
+      allEvents = raw.map(mapEventToCard).filter(e => e.title);
+    } catch (err) {
+      console.error('[ticketmaster] grid load failed:', err);
+      allEvents = [];
+    }
+  }
+  await load();
+  if (!allEvents.length) { if (gridSection) gridSection.style.visibility = ''; return; }
+
+  // ---- primary grid: first N events ("near you") ----
   const oldCardLis = Array.from(ul.children).filter(li =>
     li.querySelector('a[class*="eventGridListItem__container"]'));
+  const primaryCount = Math.min(oldCardLis.length || 3, allEvents.length);
 
-  // The artist page ships TWO grids: primaryGrid ("N events near you") and
-  // restGrid ("N events in all locations", paginated). The original layout is
-  // sized for a FIXED number of cards per grid — if we dump all 40 live events
-  // in, they overflow and punch through everything below. So we cap each grid
-  // to the exact card count the original markup had, and split the events
-  // between them with NO overlap.
-  const restUl = document.querySelector('ul[data-testid="restGrid"]');
-  const oldRestLis = restUl
-    ? Array.from(restUl.children).filter(li =>
-        li.querySelector('a[class*="eventGridListItem__container"]'))
-    : [];
-
-  const primaryCount = Math.min(oldCardLis.length || 3, events.length);
-  const restCount = Math.min(oldRestLis.length || 0, events.length - primaryCount);
-  const primaryEvents = events.slice(0, primaryCount);
-  const restEvents = events.slice(primaryCount, primaryCount + restCount);
-
-  const fragment = document.createDocumentFragment();
-  primaryEvents.forEach(ev => {
-    const li = cardLi.cloneNode(true);
-    const card = li.querySelector('a[class*="eventGridListItem__container"]');
-    if (card) fillGridCard(card, ev);
-    fragment.appendChild(li);
-  });
-
-  // Update the "N events near you" heading if present.
-  const heading = ul.querySelector('h2, h3');
-  if (heading && /event/i.test(heading.textContent)) {
-    heading.textContent = `${primaryEvents.length} event${primaryEvents.length === 1 ? '' : 's'} near you`;
-  }
-
-  // Insert the live rows where the old ones were, then drop the old rows.
-  if (oldCardLis.length) {
-    ul.insertBefore(fragment, oldCardLis[0]);
-    oldCardLis.forEach(li => li.remove());
-  } else {
+  function renderPrimary() {
+    const primaryEvents = allEvents.slice(0, primaryCount);
+    const fragment = document.createDocumentFragment();
+    primaryEvents.forEach(ev => {
+      const li = cardLi.cloneNode(true);
+      const card = li.querySelector('a[class*="eventGridListItem__container"]');
+      if (card) fillGridCard(card, ev);
+      fragment.appendChild(li);
+    });
+    ul.querySelectorAll('li').forEach(li => {
+      if (li.querySelector('a[class*="eventGridListItem__container"]')) li.remove();
+    });
     ul.appendChild(fragment);
-  }
-
-  // Repaint the secondary grid the same way — drop the stale Bad Bunny cards,
-  // then fill with leftover live events, or hide the whole section if empty.
-  if (restUl) {
-    const restCardLi = oldRestLis[0];
-    oldRestLis.forEach(li => li.remove());
-    const restHeading = restUl.querySelector('h2, h3, span');
-    const section = restUl.closest('.sc-oo2xkq-11, [class*="sc-oo2xkq-11"]') || restUl.parentElement;
-
-    if (restCardLi && restEvents.length) {
-      const restFragment = document.createDocumentFragment();
-      restEvents.forEach(ev => {
-        const li = restCardLi.cloneNode(true);
-        const card = li.querySelector('a[class*="eventGridListItem__container"]');
-        if (card) fillGridCard(card, ev);
-        restFragment.appendChild(li);
-      });
-      restUl.appendChild(restFragment);
-      if (restHeading) restHeading.textContent = `${restEvents.length} event${restEvents.length === 1 ? '' : 's'} in all locations`;
-    } else if (section) {
-      section.style.display = 'none';
+    const heading = ul.querySelector('h2, h3');
+    if (heading && /event/i.test(heading.textContent)) {
+      heading.textContent = `${primaryEvents.length} event${primaryEvents.length === 1 ? '' : 's'} near you`;
     }
   }
 
-  // Pagination under the rest grid points nowhere in our static clone — hide it
-  // so users can't click into a dead/blank page.
-  document.querySelectorAll('[data-testid="pagination"], nav[aria-label*="agination"]').forEach(p => {
-    p.style.display = 'none';
-  });
+  // ---- secondary grid: remaining events, paged + sortable/filterable ----
+  let restPage = 0;
+  function restEventsSorted() {
+    return applyGridSort(allEvents.slice(primaryCount));
+  }
+  function renderRest() {
+    if (!restUl || !restCardLiTpl) return;
+    const sorted = restEventsSorted();
+    if (!sorted.length) { if (restSection) restSection.style.display = 'none'; return; }
+    if (restSection) restSection.style.display = '';
+    const totalPages = Math.max(1, Math.ceil(sorted.length / restPageSize));
+    restPage = Math.min(restPage, totalPages - 1);
+    const pageEvents = sorted.slice(restPage * restPageSize, (restPage + 1) * restPageSize);
 
-  // Re-tag for the universal router (fticket already gets full data via URL)
-  if (typeof tagEventCards === 'function') tagEventCards();
+    const fragment = document.createDocumentFragment();
+    pageEvents.forEach(ev => {
+      const li = restCardLiTpl.cloneNode(true);
+      const card = li.querySelector('a[class*="eventGridListItem__container"]');
+      if (card) fillGridCard(card, ev);
+      fragment.appendChild(li);
+    });
+    restUl.querySelectorAll('li').forEach(li => {
+      if (li.querySelector('a[class*="eventGridListItem__container"]')) li.remove();
+    });
+    restUl.appendChild(fragment);
+    const restHeading = restUl.querySelector('h2, h3, span');
+    if (restHeading) restHeading.textContent = `${sorted.length} event${sorted.length === 1 ? '' : 's'} in all locations`;
+
+    // Wire (or rewire) the original numbered pagination buttons to real pages.
+    const buttons = Array.from(document.querySelectorAll('[data-testid^="restGrid-"]'));
+    buttons.forEach((btn, i) => {
+      btn.style.display = i < totalPages ? '' : 'none';
+      btn.setAttribute('aria-current', i === restPage ? 'true' : 'false');
+      btn.onclick = (e) => {
+        e.preventDefault();
+        restPage = i;
+        renderRest();
+        restUl.scrollIntoView({ block: 'nearest' });
+      };
+    });
+  }
+
+  function renderAll() {
+    renderPrimary();
+    restPage = 0;
+    renderRest();
+    if (typeof tagEventCards === 'function') tagEventCards();
+  }
+  renderAll();
+  if (gridSection) gridSection.style.visibility = '';
+
+  // ---- wire the Location / Date / Price filter pills ----
+  const comboboxes = document.querySelectorAll('[role="combobox"]');
+  const locationBox = Array.from(comboboxes).find(c => c.getAttribute('aria-label') === 'Filter by location');
+  const dateBox = Array.from(comboboxes).find(c => c.getAttribute('aria-label') === 'Filter by date');
+  const priceBox = Array.from(comboboxes).find(c => c.getAttribute('aria-label') === 'Filter by price');
+
+  if (locationBox && typeof attachDropdown === 'function') {
+    const label = locationBox.querySelector('.sc-bCwfaA');
+    attachDropdown(locationBox, TM_CITIES.map(c => ({ label: c })), async (opt) => {
+      if (label) label.textContent = opt.label;
+      if (gridSection) gridSection.style.visibility = 'hidden';
+      await load(opt.label);
+      if (!allEvents.length) { allEvents = []; }
+      renderAll();
+      if (gridSection) gridSection.style.visibility = '';
+    });
+  }
+  if (dateBox && typeof attachDropdown === 'function') {
+    const label = dateBox.querySelector('.sc-bCwfaA');
+    attachDropdown(dateBox, [{ label: 'All dates', value: 'all' }, { label: 'Next 7 days', value: 'soon' }], (opt) => {
+      if (label) label.textContent = opt.label;
+      GRID_SORT.date = opt.value;
+      restPage = 0;
+      renderRest();
+    });
+  }
+  if (priceBox && typeof attachDropdown === 'function') {
+    const label = priceBox.querySelector('.sc-bCwfaA');
+    attachDropdown(priceBox, [
+      { label: 'Price', value: 'none' },
+      { label: 'Lowest first', value: 'asc' },
+      { label: 'Highest first', value: 'desc' },
+    ], (opt) => {
+      if (label) label.textContent = opt.label;
+      GRID_SORT.price = opt.value;
+      restPage = 0;
+      renderRest();
+    });
+  }
+
+  // ---- "Popular artists near you" — fill with real attractions from TM ----
+  fillPopularArtists(allEvents);
+}
+
+// Repaint the static "Popular artists near you" tile list with real performers
+// pulled from the events we already fetched (deduped by attraction).
+function fillPopularArtists(events) {
+  const heading = Array.from(document.querySelectorAll('h2, h3'))
+    .find(h => h.textContent.trim() === 'Popular artists near you');
+  if (!heading) return;
+  let scope = heading.parentElement;
+  let list = null;
+  for (let i = 0; i < 4 && scope; i++) {
+    const item = scope.querySelector('a[href*="-Biletleri"] img[alt]');
+    if (item) { list = item.closest('a').parentElement; break; }
+    scope = scope.parentElement;
+  }
+  if (!list) return;
+  const tpl = list.children[0];
+  if (!tpl) return;
+
+  const seen = new Set();
+  const artists = [];
+  events.forEach(ev => {
+    if (ev.attractionId && !seen.has(ev.attractionId)) {
+      seen.add(ev.attractionId);
+      artists.push(ev);
+    }
+  });
+  if (!artists.length) return;
+
+  const fragment = document.createDocumentFragment();
+  artists.slice(0, list.children.length || 6).forEach(ev => {
+    const item = tpl.cloneNode(true);
+    const img = item.querySelector('img[alt]');
+    if (img) {
+      if (ev.image) { img.setAttribute('src', ev.image); img.removeAttribute('srcset'); }
+      img.setAttribute('alt', ev.attractionName || ev.title);
+      img.style.objectFit = 'cover';
+    }
+    const h3 = item.querySelector('h3');
+    if (h3) h3.textContent = ev.attractionName || ev.title;
+    const link = item.querySelector('a');
+    if (link) {
+      link.setAttribute('href', `artist.html?attractionId=${encodeURIComponent(ev.attractionId)}&name=${encodeURIComponent(ev.attractionName || ev.title)}&img=${encodeURIComponent(ev.image || '')}`);
+    }
+    fragment.appendChild(item);
+  });
+  list.replaceChildren(fragment);
 }
 
 // Read a live event handed over through the URL (sквозная передача данных),
@@ -337,8 +482,8 @@ function findCarouselTrack(headingText) {
   const match = typeof headingText === 'function'
     ? headingText
     : (t) => t === headingText;
-  const heading = Array.from(document.querySelectorAll('h2, h3'))
-    .find(h => match(h.textContent.trim()));
+  const heading = Array.from(document.querySelectorAll('h2, h3, h4, span'))
+    .find(h => match(h.textContent.trim()) && h.children.length === 0);
   if (!heading) return null;
   // Walk up until we reach the ancestor that actually contains the carousel.
   let scope = heading.parentElement;
@@ -440,15 +585,15 @@ function refreshCarousels() {
   });
 }
 
-function initLiveCarousels() {
+async function initLiveCarousels() {
   // Only act on pages that actually have carousels.
   if (!document.querySelector('[data-carousel-index]')) return;
   hideSkeletonLoaders(); // kill the frozen shimmer blocks under the carousel
-  refreshCarousels();    // homepage carousels (exact heading match)
-  // Artist-page recommendation carousels (substring heading match).
-  ARTIST_CAROUSELS.forEach(({ match, category }) => {
-    fillCarousel(match, category, TM_CURRENT_CITY);
-  });
+  const jobs = [
+    ...Object.entries(CAROUSEL_CATEGORIES).map(([heading, category]) => fillCarousel(heading, category, TM_CURRENT_CITY)),
+    ...ARTIST_CAROUSELS.map(({ match, category }) => fillCarousel(match, category, TM_CURRENT_CITY)),
+  ];
+  await Promise.allSettled(jobs);
 }
 
 // Cities offered by the original "Filter by location" combobox. Selecting one
@@ -467,7 +612,14 @@ function wireLocationFilter() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  initLiveGrid();      // artist.html category grid
-  initLiveCarousels(); // index.html homepage carousels
+  // Reveal hidden sections (see injectAntiFlashStyle) once everything that can
+  // repaint has settled — success or failure, so the page never stays hidden.
+  const reveal = () => document.documentElement.setAttribute('data-tm-loaded', '1');
+  const safetyTimer = setTimeout(reveal, 6000);
+
+  Promise.allSettled([initLiveGrid(), initLiveCarousels()]).then(() => {
+    clearTimeout(safetyTimer);
+    reveal();
+  });
   wireLocationFilter(); // "Filter by location" combobox -> live city-scoped queries
 });
