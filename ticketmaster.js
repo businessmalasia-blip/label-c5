@@ -161,12 +161,22 @@ function fillGridCard(templateNode, ev) {
   return card;
 }
 
-// Repaint the artist page header (h1 "<Artist> Tickets") for the loaded artist.
-function paintArtistHeader(name) {
-  if (!name) return;
-  const h1 = document.querySelector('h1');
-  if (h1) h1.textContent = `${name} Tickets`;
-  document.title = `${name} Tickets - viagogo`;
+// Repaint the artist page hero (h1 "<Artist> Tickets" + performer image) for
+// the loaded artist. We swap every banner/logo image that the original page
+// shipped for Bad Bunny so the live performer's own picture shows instead.
+function paintArtistHeader(name, image) {
+  if (name) {
+    const h1 = document.getElementById('hero-banner-content') || document.querySelector('h1');
+    if (h1) h1.textContent = `${name} Tickets`;
+    document.title = `${name} Tickets - viagogo`;
+  }
+  if (image) {
+    document.querySelectorAll('img[alt^="Bad Bunny"]').forEach(img => {
+      img.setAttribute('src', image);
+      img.removeAttribute('srcset'); // drop the old responsive set so our src wins
+      img.setAttribute('alt', name ? `${name} Tickets` : img.getAttribute('alt'));
+    });
+  }
 }
 
 // Replace the static demo grid on artist.html with a live grid. If the page was
@@ -181,7 +191,7 @@ async function initLiveGrid() {
   const q = new URLSearchParams(location.search);
   const attractionId = q.get('attractionId');
   const artistName = q.get('name');
-  paintArtistHeader(artistName);
+  paintArtistHeader(artistName, q.get('img'));
 
   let events;
   try {
@@ -281,7 +291,7 @@ function fillCarouselCard(templateNode, ev) {
   const link = card.querySelector('a[aria-label]');
   if (link) {
     const href = ev.attractionId
-      ? `artist.html?attractionId=${encodeURIComponent(ev.attractionId)}&name=${encodeURIComponent(ev.attractionName || ev.title)}`
+      ? `artist.html?attractionId=${encodeURIComponent(ev.attractionId)}&name=${encodeURIComponent(ev.attractionName || ev.title)}&img=${encodeURIComponent(ev.image || '')}`
       : `fticket.html?${tmEventParams(ev)}`;
     link.setAttribute('href', href);
     link.setAttribute('aria-label', ev.title);
