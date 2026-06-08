@@ -317,51 +317,8 @@ function initEventDetailPage() {
   wireFilters();
 }
 
-// ---------------------------------------------------------------------------
-// 7. HOMEPAGE — "Popular events" grid (replaces the empty skeleton mount)
-//    Renders 8-12 top world events using the original eventGridListItem
-//    card markup/classes so they flow through the same universal router.
-// ---------------------------------------------------------------------------
-function renderPopularEventsGrid() {
-  const mount = document.getElementById('popular-events-grid');
-  if (!mount) return;
-
-  const ids = [0, 1, 2, 3, 4, 5, 6, 7, 'london-1', 'tokyo-1'];
-  mount.innerHTML = ids.map((id) => {
-    const ev = resolveEvent(id);
-    const d = new Date(ev.date);
-    const month = isNaN(d) ? '' : d.toLocaleString('en-US', { month: 'short' });
-    const day = isNaN(d) ? '' : d.getDate();
-    const weekday = isNaN(d) ? '' : WEEKDAYS[d.getDay()];
-    return `
-      <a class="bway-jTBMCa bway-kjFaWU bway-kjEPjR bway-fPSCSl bway-fUkDun bway-dYRhWt eventGridListItem__container"
-         tabindex="0" title="${ev.artist}" href="fticket.html?event_id=${encodeURIComponent(id)}"
-         style="display:flex;gap:12px;align-items:center;width:calc(33.333% - 16px);min-width:260px;background:#fff;border-radius:12px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.08);text-decoration:none;color:inherit;">
-        <time class="eventGridListItemCalendar__container" style="text-align:center;min-width:48px;">
-          <h6 class="eventGridListItemCalendar__contentSecondary" style="margin:0;font-size:12px;color:#5C6570;">${month}</h6>
-          <h6 class="eventGridListItemCalendar__contentPrimary" style="margin:0;font-size:20px;font-weight:700;">${day}</h6>
-          <p class="eventGridListItemCalendar__chinContent" style="margin:0;font-size:11px;color:#5C6570;">${weekday}</p>
-        </time>
-        <div class="eventGridListItemBody__container">
-          <h3 data-testid="event-grid-item-title-text" class="eventGridListItemTitle__title" style="margin:0;font-size:15px;font-weight:700;"><bdi>${ev.artist}</bdi></h3>
-          <div class="eventGridListItemSubtitle__subtitle" style="font-size:13px;color:#5C6570;"><bdi>${ev.venue}, ${ev.city}</bdi></div>
-        </div>
-      </a>`;
-  }).join('');
-
-  mount.querySelectorAll('a[class*="eventGridListItem__container"]').forEach((a) => {
-    if (a.dataset.routed) return;
-    a.dataset.routed = '1';
-    a.addEventListener('click', (e) => {
-      e.preventDefault();
-      window.location.href = a.getAttribute('href');
-    });
-  });
-}
-
 document.addEventListener('DOMContentLoaded', () => {
   tagEventCards();
   wireUniversalRouter();
-  renderPopularEventsGrid();
   initEventDetailPage();
 });
