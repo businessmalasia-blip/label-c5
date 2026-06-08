@@ -113,11 +113,10 @@ function formatClock(localTime) {
   return `${hour}:${m} ${ampm}`;
 }
 
-// Clone the ORIGINAL viagogo artist-grid card and inject live data into the
-// EXACT elements it ships with — flag stays a flag, every bdi keeps its slot.
-function fillGridCard(templateNode, ev) {
-  const card = templateNode.cloneNode(true);
-
+// Inject live data into an EXISTING viagogo artist-grid card (an <a> node),
+// mutating only the elements it ships with — flag stays a flag, every bdi
+// keeps its slot. The caller clones the whole <li> wrapper first.
+function fillGridCard(card, ev) {
   // Route every card to ITS OWN event (real params, no hardcode) + a11y title
   card.setAttribute('href', `fticket.html?${tmEventParams(ev)}`);
   card.setAttribute('title', ev.title);
@@ -161,6 +160,16 @@ function fillGridCard(templateNode, ev) {
   return card;
 }
 
+// Hide the frozen skeleton/shimmer loaders captured in the homepage snapshot
+// (empty bway-gTnEAZ blocks under the carousel that would otherwise pulse
+// forever because the real viagogo app never hydrates them).
+function hideSkeletonLoaders() {
+  document.querySelectorAll('.bway-gTnEAZ').forEach(el => {
+    const box = el.closest('[aria-hidden="true"]') || el.parentElement;
+    if (box) box.style.display = 'none';
+  });
+}
+
 // Repaint the artist page hero (h1 "<Artist> Tickets" + performer image) for
 // the loaded artist. We swap every banner/logo image that the original page
 // shipped for Bad Bunny so the live performer's own picture shows instead.
@@ -174,6 +183,9 @@ function paintArtistHeader(name, image) {
     document.querySelectorAll('img[alt^="Bad Bunny"]').forEach(img => {
       img.setAttribute('src', image);
       img.removeAttribute('srcset'); // drop the old responsive set so our src wins
+      // Ticketmaster art is 16:9 while viagogo's slots are square/portrait —
+      // cover-fit so people's photos crop cleanly instead of stretching.
+      img.style.objectFit = 'cover';
       img.setAttribute('alt', name ? `${name} Tickets` : img.getAttribute('alt'));
     });
   }
@@ -183,10 +195,15 @@ function paintArtistHeader(name, image) {
 // opened for a specific artist (?attractionId=), we load THAT artist's full
 // list of tour dates; otherwise we fall back to a category feed.
 async function initLiveGrid() {
-  const cards = document.querySelectorAll('a[class*="eventGridListItem__container"]');
-  if (!cards.length) return; // not a grid page
-  const template = cards[0];
-  const container = template.parentElement;
+  const firstCard = document.querySelector('a[class*="eventGridListItem__container"]');
+  if (!firstCard) return; // not a grid page
+
+  // The grid is a <ul data-testid="primaryGrid"> whose first <li> is a heading
+  // ("N events near you") and whose remaining <li>s each wrap one card. We clone
+  // the WHOLE <li> per event so the grid layout/classes stay intact.
+  const cardLi = firstCard.closest('li');
+  const ul = cardLi ? cardLi.parentElement : firstCard.parentElement;
+  if (!cardLi || !ul) return;
 
   const q = new URLSearchParams(location.search);
   const attractionId = q.get('attractionId');
@@ -205,9 +222,31 @@ async function initLiveGrid() {
   }
   if (!events.length) return;
 
+  // All existing <li>s that actually hold a card (the heading <li> is kept).
+  const oldCardLis = Array.from(ul.children).filter(li =>
+    li.querySelector('a[class*="eventGridListItem__container"]'));
+
   const fragment = document.createDocumentFragment();
-  events.forEach(ev => fragment.appendChild(fillGridCard(template, ev)));
-  container.replaceChildren(fragment);
+  events.forEach(ev => {
+    const li = cardLi.cloneNode(true);
+    const card = li.querySelector('a[class*="eventGridListItem__container"]');
+    if (card) fillGridCard(card, ev);
+    fragment.appendChild(li);
+  });
+
+  // Update the "N events near you" heading if present.
+  const heading = ul.querySelector('h2, h3');
+  if (heading && /event/i.test(heading.textContent)) {
+    heading.textContent = `${events.length} event${events.length === 1 ? '' : 's'} near you`;
+  }
+
+  // Insert the live rows where the old ones were, then drop the old rows.
+  if (oldCardLis.length) {
+    ul.insertBefore(fragment, oldCardLis[0]);
+    oldCardLis.forEach(li => li.remove());
+  } else {
+    ul.appendChild(fragment);
+  }
 
   // Re-tag for the universal router (fticket already gets full data via URL)
   if (typeof tagEventCards === 'function') tagEventCards();
@@ -273,7 +312,8 @@ function fillCarouselCard(templateNode, ev) {
 
   const img = card.querySelector('img[alt]');
   if (img) {
-    if (ev.image) img.setAttribute('src', ev.image);
+    if (ev.image) { img.setAttribute('src', ev.image); img.removeAttribute('srcset'); }
+    img.style.objectFit = 'cover'; // keep TM 16:9 art from stretching in the slot
     img.setAttribute('alt', ev.title);
   }
   // Card title lives in an h2/h3 inside the card
@@ -343,6 +383,7 @@ function refreshCarousels() {
 function initLiveCarousels() {
   // Only act on the homepage (carousels present); other pages are skipped.
   if (!document.querySelector('[data-carousel-index]')) return;
+  hideSkeletonLoaders(); // kill the frozen shimmer blocks under the carousel
   refreshCarousels();
 }
 
