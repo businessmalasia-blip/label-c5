@@ -238,8 +238,10 @@ function liveEventFromUrl() {
 // dedicated category. We locate the carousel by its section heading text, then
 // clone the carousel's OWN first card so the markup/classes stay pixel-perfect.
 const CAROUSEL_CATEGORIES = {
+  // The live homepage carousel "Recommended for you" is a wall of concert
+  // artists, so it maps to Music. "Popular events" (when present) does too.
   'Popular events': 'Music',
-  'Recommended for you': 'Sports',
+  'Recommended for you': 'Music',
   'Recently viewed': 'Arts & Theatre',
 };
 
@@ -278,10 +280,18 @@ function fillCarouselCard(templateNode, ev) {
   const title = card.querySelector('h2, h3');
   if (title) title.textContent = ev.title;
 
-  // Subtitle <p> (date / location) — any <p> that is not the Follow control
-  const subtitle = Array.from(card.querySelectorAll('p')).find(p => !p.closest('button'));
-  if (subtitle) {
-    subtitle.textContent = [shortDate(ev.date), ev.city].filter(Boolean).join(' · ') || 'See dates';
+  // The card has up to two subtitle <p>s that are NOT inside the Follow button:
+  //   [0] = date line  ("Sat, 27 Jun • 20:00" / "30 Jul")
+  //   [1] = location/“N events near you” line
+  const subs = Array.from(card.querySelectorAll('p')).filter(p => !p.closest('button'));
+  if (subs[0]) {
+    const dateLine = ev.time
+      ? `${shortDate(ev.date)} • ${formatClock(ev.time)}`
+      : shortDate(ev.date);
+    subs[0].textContent = dateLine || 'See dates';
+  }
+  if (subs[1]) {
+    subs[1].textContent = [ev.city, ev.country].filter(Boolean).join(', ') || 'Find tickets';
   }
 
   // The overlay <a> is the card's click target. If this event belongs to an
