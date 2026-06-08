@@ -268,6 +268,7 @@ function liveEventFromUrl() {
     time: formatClock(q.get('time')),
     currency: q.get('currency') === 'USD' ? '$' : (q.get('currency') || '$'),
     basePrice: Number.isFinite(price) && price > 0 ? price : 120,
+    image: q.get('img') || '',
     _live: true,
   };
 }

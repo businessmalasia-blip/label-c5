@@ -148,6 +148,18 @@ function paintEventHeader(ev) {
   if (dateSpan) dateSpan.textContent = `${formatEventDate(ev.date)} · ${ev.time}`;
   const venueBtn = Array.from(header.querySelectorAll('button')).find(b => /Arena|Stadium|Theatre|Garden|Park|Bernabéu/i.test(b.textContent));
   if (venueBtn) venueBtn.textContent = `${ev.venue}, ${ev.city}, ${ev.country}`;
+  // Swap the performer thumbnail too — otherwise the header shows the live
+  // artist's name next to Bad Bunny's photo, which reads as two events at once.
+  if (ev.image) {
+    header.querySelectorAll('img[alt*="Bad Bunny"], img[alt*="Tickets"]').forEach(img => {
+      img.setAttribute('src', ev.image);
+      img.setAttribute('alt', `${ev.artist} Tickets`);
+      img.removeAttribute('srcset');
+      img.style.objectFit = 'cover';
+    });
+  }
+  const breadcrumb = header.querySelector('a[href*="Bad-Bunny"]');
+  if (breadcrumb) breadcrumb.removeAttribute('href');
   document.title = `${ev.artist} Tickets - ${ev.venue} - viagogo`;
 }
 
